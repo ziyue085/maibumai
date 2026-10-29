@@ -84,9 +84,9 @@ def _m04():
     return _set(verdict, "MIN_REASONS", {"L1": 0, "L2": 0, "L3": 0})
 
 
-@mutation("让空替代品也算有效替代方案")
+@mutation("把「换方案」当成可以直接买")
 def _m05():
-    return _set(verdict, "_valid_alternative", lambda alt: True)
+    return _item(verdict.RULE_TIER, "SUBSTITUTE_ADEQUATE", "BUY")
 
 
 # --- 证据层 ---------------------------------------------------------------
@@ -107,7 +107,8 @@ def _m08():
 
 @mutation("外币直接当本币用（跳过换算）")
 def _m09():
-    return _set(evidence, "convert_amount", lambda value, cur, base, items: float(value))
+    return _set(evidence, "convert_amount",
+                lambda value, cur, base, items, as_of=None: float(value))
 
 
 # --- 输出审计 -------------------------------------------------------------
@@ -182,6 +183,101 @@ def _m22():
 def _m23():
     return _set(calc, "budget_status", lambda price, profile, monthly_equiv=None: {
         "status": "ok", "code": "AFFORDABLE_WITHIN_BUDGET", "detail": "夹具", "snapshot": {}})
+
+
+# --- 第四轮审核新增：确认/日期边界、结论与财务门一致、替代品资格 -------------
+@mutation("未确认的字段照用（只看保鲜期）")
+def _m24():
+    def stale(profile, key):
+        spec = store.FACT_SPECS.get(key) or {}
+        ttl = spec.get("ttl")
+        if not ttl:
+            return False
+        age = store.fact_age(profile, key)
+        return False if age is None else age > ttl
+    return _set(store, "fact_stale", stale)
+
+
+@mutation("分级门槛用未经校验的原始值")
+def _m25():
+    return _set(calc, "threshold_of", lambda profile: 99999)
+
+
+@mutation("承受力没确认也照常给购买结论")
+def _m26():
+    return _set(mbm, "_affordability_unverified", lambda fin, level, price: None)
+
+
+@mutation("替代方案只要有个名字就算合格")
+def _m27():
+    return _set(verdict, "alternative_problems",
+                lambda alt: [] if isinstance(alt, dict) and alt.get("name") else ["ALT_NO_NAME"])
+
+
+@mutation("替代品的预算状态一律当作没问题")
+def _m28():
+    orig = mbm._assess_alternative
+
+    def fake(*args, **kwargs):
+        out = orig(*args, **kwargs)
+        out["problems"] = [p for p in out["problems"]
+                           if p not in ("ALT_OVER_BUDGET", "ALT_NEEDS_TIME", "ALT_BUDGET_UNKNOWN")]
+        return out
+    return _set(mbm, "_assess_alternative", fake)
+
+
+@mutation("替代品外币价不做换算")
+def _m29():
+    orig = mbm._assess_alternative
+
+    def fake(*args, **kwargs):
+        out = orig(*args, **kwargs)
+        raw = (args[0] or {}).get("price") if args else None
+        if out.get("price") is None and isinstance(raw, (int, float)):
+            out["price"] = float(raw)
+            out["problems"] = [p for p in out["problems"] if p != "ALT_PRICE_UNCONVERTED"]
+        return out
+    return _set(mbm, "_assess_alternative", fake)
+
+
+@mutation("账本直接写原始输入")
+def _m30():
+    def raw(draft, result):
+        return {
+            "type": "decision", "id": draft.get("id") or "fixture",
+            "level": result["level"]["level"], "product": draft.get("product"),
+            "currency": result["currency"], "verdict": result["verdict"]["verdict"],
+            "reasons": draft.get("reasons") or [],
+            "enforced": result["verdict"].get("enforced") or [],
+            "alternative": draft.get("alternative"), "numbers": result["numbers"],
+            "evidence": draft.get("evidence") or [],
+            "prediction": draft.get("prediction") or {},
+            "recheck_condition": draft.get("recheck_condition"),
+            "overridden": False, "notes": "",
+        }
+    return _set(mbm, "_ledger_record", raw)
+
+
+@mutation("不检查替代品价格是否有出处")
+def _m31():
+    orig = mbm._assess_alternative
+
+    def fake(*args, **kwargs):
+        out = orig(*args, **kwargs)
+        out["problems"] = [p for p in out["problems"] if p != "ALT_PRICE_UNVERIFIED"]
+        return out
+    return _set(mbm, "_assess_alternative", fake)
+
+
+@mutation("快判上限可以被放大")
+def _m32():
+    return _set(calc, "DEFAULT_SMALL", 99999)
+
+
+@mutation("所有硬拦截都能让位给替代方案（不止钱）")
+def _m33():
+    return _set(verdict, "MONEY_TIER_CODES",
+                tuple(c for c, t in verdict.RULE_TIER.items() if t == "DONT_BUY"))
 
 
 def main() -> int:

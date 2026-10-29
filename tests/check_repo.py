@@ -23,6 +23,20 @@ PERSONAL_PATTERNS = re.compile(
     r"(^|/)(profile|owned)\.json$|decisions\.jsonl|^\.sim/|^\.repro|/\.maibumai/"
 )
 
+#: 真实个人数据的指纹。拼起来写，避免本文件自己被扫到。
+#: 这些字符串一旦出现在仓库里，就说明有真实数据漏进去了。
+PRIVATE_SIGNATURES = [
+    "500" + "74",          # 净资产快照
+    "38" + "735",          # 现金快照
+    "10" + "384",          # 投资快照
+    "171" + "67",          # 本机用户名/路径
+    "山东" + "理工",
+    "子" + "曰",
+    "Pura " + "70",
+    "Pixel " + "6",
+    "联想" + "小新",
+]
+
 
 def tracked_files() -> list:
     try:
@@ -67,6 +81,27 @@ def check_python(files) -> list:
     return bad
 
 
+def check_privacy_signatures(files) -> list:
+    """扫真实个人数据的指纹，不只看文件名。
+
+    文件名合规不代表内容合规：真实金额、真实设备型号、本机用户名
+    都可能被写进文档或测试样例。
+    """
+    hits = []
+    for name in files:
+        path = ROOT / name
+        if path.suffix.lower() in (".png", ".jpg", ".zip", ".pdf"):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for sig in PRIVATE_SIGNATURES:
+            if sig in text:
+                hits.append(f"{name} 含 {sig!r}")
+    return hits
+
+
 def check_version() -> list:
     problems = []
     skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
@@ -87,6 +122,10 @@ def main() -> int:
     leaked = check_personal_data(files)
     if leaked:
         problems.append("仓库里出现疑似个人数据文件：" + "、".join(leaked))
+
+    signatures = check_privacy_signatures(files)
+    if signatures:
+        problems.append("仓库内容含真实个人数据指纹：" + "；".join(signatures))
 
     bad_json = check_json(files)
     if bad_json:

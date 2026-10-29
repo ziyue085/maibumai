@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: py${{ matrix.python-version }}
+  linux:
+    name: linux / py${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -28,13 +28,13 @@ jobs:
       - name: 仓库自检（个人数据 / JSON / 编译 / 版本号）
         run: python tests/check_repo.py
 
-      - name: 规则回归（117 条夹具）
+      - name: 规则回归（144 条夹具）
         run: python tests/run_regression.py -v
 
-      - name: 变异测试（23 个变异必须全部被捕获）
+      - name: 变异测试（33 个变异必须全部被捕获）
         run: python tests/mutation_check.py
 
-      - name: 端到端冒烟（26 步）
+      - name: 端到端冒烟（34 步）
         run: python tests/run_cli_smoke.py
 
       - name: 引擎自检
@@ -44,3 +44,62 @@ jobs:
           python scripts/mbm.py init
           python scripts/mbm.py doctor
           python scripts/mbm.py brief --human
+
+  windows:
+    # 实际使用环境是 Windows。这里要覆盖的不只是"能不能跑"，
+    # 还有中文输出在不同控制台代码页下会不会乱码或直接抛异常。
+    name: windows / py${{ matrix.python-version }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 仓库自检
+        run: python tests/check_repo.py
+
+      - name: 规则回归
+        run: python tests/run_regression.py -v
+
+      - name: 变异测试
+        run: python tests/mutation_check.py
+
+      - name: 端到端冒烟
+        run: python tests/run_cli_smoke.py
+
+      - name: 中文路径、账本归一化与输出编码
+        run: python tests/windows_case_check.py
+
+      - name: 中文输出（UTF-8 控制台）
+        shell: cmd
+        env:
+          MAIBUMAI_HOME: ${{ runner.temp }}\mbm-home-utf8
+        run: |
+          chcp 65001
+          python scripts\mbm.py init
+          python scripts\mbm.py profile set finance.monthly_income=2600 finance.monthly_fixed_expense=1100 finance.savings_target_monthly=0 invest.monthly_contribution=0
+          python scripts\mbm.py profile set finance.liquid_cash=30000 finance.emergency_fund=6000 finance.near_term_obligations=8000
+          python scripts\mbm.py brief --human
+          python scripts\mbm.py doctor --human
+
+      - name: 中文输出（GBK 控制台，重定向到文件）
+        shell: cmd
+        env:
+          MAIBUMAI_HOME: ${{ runner.temp }}\mbm-home-gbk
+        run: |
+          chcp 936
+          python scripts\mbm.py init
+          python scripts\mbm.py profile set finance.monthly_income=2600 finance.monthly_fixed_expense=1100
+          python scripts\mbm.py brief --human > brief.txt
+          python tests\check_utf8_output.py brief.txt

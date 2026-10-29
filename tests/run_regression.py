@@ -159,8 +159,11 @@ def _today():
 def _fixture_profile(spec: dict) -> dict:
     """用扁平 facts 构造一份 v2 画像，不动磁盘。
 
-    fact 值可以是纯值（表示"今天刚确认"），也可以是
-    ``{"value": x, "days_ago": n}``（表示 n 天前填的，用于测过期逻辑）。
+    fact 值可以是：
+      - 纯值：视为"今天刚确认"
+      - ``{"value": x, "days_ago": n}``：n 天前填的（测过期）
+      - ``{"value": x, "confirmed": false}``：历史快照 / 别人给的数字（测未确认）
+      - ``{"value": x, "no_date": true}``：有值但没日期（测手写画像绕过时效）
     """
     import datetime as _dt
 
@@ -168,9 +171,15 @@ def _fixture_profile(spec: dict) -> dict:
     today = _dt.date.today()
     facts = {}
     for k, v in (spec.get("facts") or {}).items():
-        if isinstance(v, dict) and "days_ago" in v:
-            when = (today - _dt.timedelta(days=int(v["days_ago"]))).isoformat()
-            facts[k] = {"value": v.get("value"), "updated_at": when, "note": "夹具"}
+        if isinstance(v, dict) and ("days_ago" in v or "confirmed" in v or v.get("no_date")):
+            item = {"value": v.get("value")}
+            if not v.get("no_date"):
+                days = int(v.get("days_ago") or 0)
+                item["updated_at"] = (today - _dt.timedelta(days=days)).isoformat()
+            if "confirmed" in v:
+                item["confirmed"] = v["confirmed"]
+            item["note"] = "夹具"
+            facts[k] = item
         else:
             facts[k] = {"value": v, "updated_at": today.isoformat(), "note": "夹具"}
     p["facts"] = facts
@@ -225,6 +234,26 @@ def run_pipeline():
             missing_warn = set(want_warn) - got_warn
             if missing_warn:
                 problems.append(f"缺警告 {sorted(missing_warn)}；实际 {sorted(got_warn)}")
+        # 任意严重度、任意门的检查码：结论不对但门里报了原因，也是要断言的东西
+        want_find = c.get("expect_findings")
+        if want_find is not None:
+            got_all = set()
+            for gate in result["gates"].values():
+                got_all |= {f["code"] for f in gate.get("findings") or []}
+            missing_find = set(want_find) - got_all
+            if missing_find:
+                problems.append(f"缺检查码 {sorted(missing_find)}；实际 {sorted(got_all)}")
+        # 替代方案不成立的具体原因
+        want_alt = c.get("expect_alt_problems")
+        if want_alt is not None:
+            got_alt = sorted((result["numbers"].get("alternative") or {}).get("problems") or [])
+            if got_alt != sorted(want_alt):
+                problems.append(f"替代品问题 {got_alt} 期望 {sorted(want_alt)}")
+        want_alt_price = c.get("expect_alt_price")
+        if want_alt_price is not None:
+            got_price = (result["numbers"].get("alternative") or {}).get("price")
+            if got_price != want_alt_price:
+                problems.append(f"替代品价格 {got_price} 期望 {want_alt_price}")
         res = (result["numbers"] or {}).get("resources") or {}
         similar_n = len(res.get("similar") or [])
         if c.get("expect_similar_min") is not None and similar_n < c["expect_similar_min"]:
@@ -242,12 +271,71 @@ def run_pipeline():
     return out
 
 
+def run_ledger():
+    """落账层：账本里写的是**归一后**的理由与证据，不是原始输入。
+
+    直接写 draft 会把外部伪造的 ``enforced``、未换算的外币金额、
+    以及判定阶段已丢弃的无效理由一起带进账本。
+    """
+    import mbm  # 延迟导入
+
+    out = []
+    for c in _load("ledger_cases.json"):
+        profile = _fixture_profile(c.get("profile") or {})
+        draft = copy.deepcopy(c["draft"])
+        draft.setdefault("as_of", FIXTURE_TODAY)
+        problems = []
+        try:
+            result = mbm._evaluate(draft, profile, c.get("owned"))
+            record = mbm._ledger_record(draft, result)
+        except Exception as exc:  # noqa: BLE001
+            out.append(_res("ledger", c["id"], c["name"], False, f"抛异常：{exc!r}"))
+            continue
+
+        want_ok = c.get("expect_ok")
+        if want_ok is not None and result["ok"] != want_ok:
+            problems.append(f"ok={result['ok']} 期望 {want_ok}")
+        want_verdict = c.get("expect_verdict")
+        if want_verdict and record["verdict"] != want_verdict:
+            problems.append(f"结论 {record['verdict']} 期望 {want_verdict}")
+
+        got_codes = [r.get("code") for r in record["reasons"]]
+        if c.get("expect_reason_codes") is not None and got_codes != c["expect_reason_codes"]:
+            problems.append(f"理由 {got_codes} 期望 {c['expect_reason_codes']}")
+        if c.get("expect_enforced") is not None \
+                and sorted(record["enforced"]) != sorted(c["expect_enforced"]):
+            problems.append(f"enforced {record['enforced']} 期望 {c['expect_enforced']}")
+
+        engine_set = set(record["enforced"])
+        forged = [
+            r["code"] for r in record["reasons"]
+            if r.get("enforced") and r["code"] not in engine_set
+        ]
+        if forged:
+            problems.append(f"这些理由带着伪造 enforced 进了账本：{forged}")
+
+        if c.get("expect_evidence_values") is not None:
+            got_vals = [e.get("value") for e in record["evidence"]]
+            if got_vals != c["expect_evidence_values"]:
+                problems.append(f"证据金额 {got_vals} 期望 {c['expect_evidence_values']}")
+        if c.get("expect_product_price") is not None:
+            got_price = (record["product"] or {}).get("price")
+            if got_price != c["expect_product_price"]:
+                problems.append(f"商品价 {got_price} 期望 {c['expect_product_price']}")
+        if c.get("expect_record_currency") and \
+                (record.get("currency") or {}).get("base") != c["expect_record_currency"]:
+            problems.append(f"账本币种 {(record.get('currency') or {}).get('base')}")
+        out.append(_res("ledger", c["id"], c["name"], not problems, "；".join(problems)))
+    return out
+
+
 SUITES = {
     "verdict": run_verdict,
     "audit": run_audit,
     "evidence": run_evidence,
     "calc": run_calc,
     "pipeline": run_pipeline,
+    "ledger": run_ledger,
 }
 
 

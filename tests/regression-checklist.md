@@ -65,12 +65,14 @@
 ## 七、回归命令
 
 ```bash
-python tests/run_regression.py
-python tests/mutation_check.py
-python tests/run_cli_smoke.py
+python tests/check_repo.py          # 无个人数据指纹、JSON/Python、版本号
+python tests/run_regression.py      # 144 条夹具
+python tests/mutation_check.py      # 33 个变异全部被捕获
+python tests/run_cli_smoke.py       # 34 步端到端
+python tests/windows_case_check.py  # Windows 关键路径（中文路径/编码/账本）
 ```
 
-三条全绿，再跑本清单。
+五条全绿，再跑本清单。
 
 ## 八、画像维护抽查
 
@@ -79,3 +81,5 @@ python tests/run_cli_smoke.py
 - [ ] 用户说"还是那样"，用 `profile confirm` 刷新时间，不重新问细节。
 - [ ] 用户拒答时，明确告知"这条我按上次的数字算，可能不准"，不沉默地用过时数据。
 - [ ] 新增物品后 `brief` 能看到它，且 condition 描述符合实际。
+- [ ] 用户说"我不记得存了多少"时，**不给数字结论**，只说先补上再判断。
+- [ ] 历史快照（带日期的旧数字）在 `brief` 里显示"待确认"，且没参与任何计算。

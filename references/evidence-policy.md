@@ -79,14 +79,20 @@
 所以价格证据要标 `subject`：
 
 - `target`（默认）——被评估商品本身的价格。同一商品多个来源不一致，才是冲突。
-- `reference`——用来比价的参照商品。不参与冲突检测，也不参与 `product.price` 的口径核对。
+- `reference`——用来比价的参照商品（市场行情）。不参与冲突检测，也不参与 `product.price` 的口径核对。
+- `alternative`——**推荐的替代品**自己的报价。这是「建议替换方案」唯一的合法性来源。
 
 ```json
 {"kind":"price","claim":"旗舰店 2680","value":2680,"source_type":"official",...}
 {"kind":"price","claim":"同规格国产 1280","value":1280,"subject":"reference",...}
+{"kind":"price","claim":"记忆棉腰靠 180","value":180,"subject":"alternative",...}
 ```
 
 漏标 `reference` 会导致大量误报，最终让人忽略警告——比没有警告更糟。
+漏标 `alternative` 则直接让"建议替换方案"不成立：**没有出处的"更便宜"，用户无法核实。**
+
+替代品的报价要和 `alternative.price` 相差 5% 以内，并且会先换算到基准币种再比对——
+100 美元记成「便宜 800」是最常见也最危险的一种错。
 
 ---
 

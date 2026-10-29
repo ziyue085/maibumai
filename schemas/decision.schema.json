@@ -5,28 +5,78 @@
   "description": "一次消费决策的草稿。mbm.py check 校验它，mbm.py judge 校验并落账。",
   "type": "object",
   "properties": {
-    "id": {"type": "string", "description": "留空则自动生成 YYYYMMDD-HHMM-xxxx"},
-    "level": {"type": "string", "enum": ["L1", "L2", "L3"], "description": "只能往上调；低于系统判定会被拦"},
-    "as_of": {"type": "string", "description": "校验基准日 YYYY-MM-DD，默认今天"},
+    "id": {
+      "type": "string",
+      "description": "留空则自动生成 YYYYMMDD-HHMM-xxxx"
+    },
+    "level": {
+      "type": "string",
+      "enum": [
+        "L1",
+        "L2",
+        "L3"
+      ],
+      "description": "只能往上调；低于系统判定会被拦"
+    },
+    "as_of": {
+      "type": "string",
+      "description": "校验基准日 YYYY-MM-DD，默认今天"
+    },
     "product": {
       "type": "object",
       "properties": {
-        "name": {"type": "string"},
-        "price": {"type": ["number", "null"], "description": "到手价，必须是正数"},
-        "currency": {"type": "string", "default": "CNY", "description": "与画像基准币种不同时必须给 fx 证据"},
-        "category": {"type": "string", "description": "如 数码/耳机、家具/椅子、会员/订阅"},
+        "name": {
+          "type": "string"
+        },
+        "price": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "到手价，必须是正数"
+        },
+        "currency": {
+          "type": "string",
+          "default": "CNY",
+          "description": "与画像基准币种不同时必须给 fx 证据"
+        },
+        "category": {
+          "type": "string",
+          "description": "如 数码/耳机、家具/椅子、会员/订阅"
+        },
         "period": {
           "type": "string",
-          "enum": ["once", "month", "quarter", "year"],
+          "enum": [
+            "once",
+            "month",
+            "quarter",
+            "year"
+          ],
           "description": "订阅必填；缺失时按重决策处理，且阻断购买类结论"
         },
-        "condition": {"type": "string", "description": "new / used / refurbished，用于约束检查"},
-        "portable": {"type": ["boolean", "null"]},
-        "url": {"type": "string"},
-        "spec": {"type": "string"},
-        "note": {"type": "string"}
+        "condition": {
+          "type": "string",
+          "description": "new / used / refurbished，用于约束检查"
+        },
+        "portable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "url": {
+          "type": "string"
+        },
+        "spec": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
       },
-      "required": ["name"]
+      "required": [
+        "name"
+      ]
     },
     "reasons": {
       "type": "array",
@@ -35,21 +85,67 @@
       "items": {
         "type": "object",
         "properties": {
-          "code": {"type": "string"},
-          "note": {"type": "string", "description": "谁、多少、什么时候——写成别人能复核的一句话"}
+          "code": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "谁、多少、什么时候——写成别人能复核的一句话"
+          }
         },
-        "required": ["code", "note"]
+        "required": [
+          "code",
+          "note"
+        ]
       }
     },
     "alternative": {
-      "type": ["object", "null"],
-      "description": "建议替换方案时必填，且必须有价格与来源",
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "建议替换方案时必填。必须同时具备名称、价格、来源；订阅类还要 period；且要有一条 subject=alternative 的价格证据。缺任何一项都不会给出「建议替换方案」。",
       "properties": {
-        "name": {"type": "string"},
-        "price": {"type": ["number", "null"]},
-        "price_note": {"type": "string"},
-        "source": {"type": "string"},
-        "why": {"type": "string", "description": "满足了多少需求、牺牲了什么"}
+        "name": {
+          "type": "string"
+        },
+        "price": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "正数；外币请同时给 currency"
+        },
+        "currency": {
+          "type": "string",
+          "description": "不填则按商品原币种处理"
+        },
+        "period": {
+          "type": "string",
+          "enum": [
+            "once",
+            "month",
+            "quarter",
+            "year"
+          ],
+          "description": "订阅类必填，否则年化成本无法比较"
+        },
+        "category": {
+          "type": "string",
+          "description": "不填则继承商品品类"
+        },
+        "source": {
+          "type": "string",
+          "description": "能核实它真的存在、真的卖这个价"
+        },
+        "why": {
+          "type": "string",
+          "description": "满足了多少需求、牺牲了什么"
+        },
+        "price_note": {
+          "type": "string",
+          "description": "仅作补充说明，不能替代 price"
+        }
       }
     },
     "evidence": {
@@ -58,46 +154,139 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": {"type": "string", "enum": ["price", "promo", "price_history", "spec", "review", "safety", "fx", "other"]},
-          "claim": {"type": "string"},
-          "value": {"type": ["number", "null"]},
-          "currency": {"type": "string"},
+          "kind": {
+            "type": "string",
+            "enum": [
+              "price",
+              "promo",
+              "price_history",
+              "spec",
+              "review",
+              "safety",
+              "fx",
+              "other"
+            ]
+          },
+          "claim": {
+            "type": "string"
+          },
+          "value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
           "subject": {
             "type": "string",
-            "enum": ["target", "reference"],
+            "enum": [
+              "target",
+              "reference",
+              "alternative"
+            ],
             "default": "target",
-            "description": "target=被评估商品；reference=用来比价的参照商品（不参与冲突检测）"
+            "description": "target=被评估商品；reference=用来比价的参照商品（不参与冲突检测）；alternative=推荐的替代品自己的报价（SWITCH 的必要依据）"
           },
-          "base": {"type": "string", "description": "仅 fx 类：源币种"},
-          "quote": {"type": "string", "description": "仅 fx 类：目标币种"},
-          "source_type": {"type": "string", "enum": ["official", "authorized_retail", "third_party", "user_provided", "ugc"]},
-          "url": {"type": "string"},
-          "observed_at": {"type": "string", "description": "YYYY-MM-DD"}
+          "base": {
+            "type": "string",
+            "description": "仅 fx 类：源币种"
+          },
+          "quote": {
+            "type": "string",
+            "description": "仅 fx 类：目标币种"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "official",
+              "authorized_retail",
+              "third_party",
+              "user_provided",
+              "ugc"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "observed_at": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          }
         },
-        "required": ["kind", "claim", "source_type"]
+        "required": [
+          "kind",
+          "claim",
+          "source_type"
+        ]
       }
     },
     "prediction": {
       "type": "object",
       "description": "对未来的预测，用于日后校准。宁可填得保守，不要填得漂亮。",
       "properties": {
-        "uses_per_month": {"type": ["number", "null"]},
-        "months": {"type": ["number", "null"]},
-        "satisfaction": {"type": ["integer", "null"], "minimum": 1, "maximum": 5}
+        "uses_per_month": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "months": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "satisfaction": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 5
+        }
       }
     },
-    "numbers": {"type": "object", "description": "由脚本计算，一般不用手填"},
-    "recheck_condition": {"type": "string", "description": "结论为暂缓时必填：什么时点或什么条件下重新判断"},
+    "numbers": {
+      "type": "object",
+      "description": "由脚本计算，一般不用手填"
+    },
+    "recheck_condition": {
+      "type": "string",
+      "description": "结论为暂缓时必填：什么时点或什么条件下重新判断"
+    },
     "override": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "description": "人工调整。只能往更保守的方向走；不能把暂缓改成购买，也不能绕过硬拦截",
       "properties": {
-        "verdict": {"type": "string", "enum": ["BUY", "SWITCH", "DEFER", "DONT_BUY"]},
-        "reason": {"type": "string"}
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SWITCH",
+            "DEFER",
+            "DONT_BUY"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
       }
     },
-    "summary": {"type": "string", "description": "一句话结论，会参与废话与最高级表述检测"},
-    "notes": {"type": "string"}
+    "summary": {
+      "type": "string",
+      "description": "一句话结论，会参与废话与最高级表述检测"
+    },
+    "notes": {
+      "type": "string"
+    }
   },
-  "required": ["product", "reasons"]
+  "required": [
+    "product",
+    "reasons"
+  ]
 }

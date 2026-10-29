@@ -61,7 +61,9 @@ class Ctx:
 GOOD = {
     "product": {"name": "索尼 WH-1000XM5", "price": 899, "category": "数码/耳机"},
     "reasons": [
-        {"code": "NEED_REAL", "note": "每天地铁通勤 2 小时，旧耳机降噪失效三个月"},
+        # 故意带上一个外部伪造的 enforced 标记：判定阶段必须清掉，账本里也不许留
+        {"code": "NEED_REAL", "note": "每天地铁通勤 2 小时，旧耳机降噪失效三个月",
+         "enforced": True},
         {"code": "PRICE_FAIR", "note": "三家自营 869-929，无溢价"},
         {"code": "DURABILITY_GAIN", "note": "预期使用三年以上"},
     ],
@@ -148,10 +150,18 @@ def main() -> int:
                   "BUDGET_BREACH" in (exp["result"]["gates"]["financial"]["enforced"] or []),
                   exp["result"]["gates"]["financial"])
 
-        # 关键回归：外币无汇率必须阻断
+        # 关键回归：外币无汇率时不能用外币数字硬比预算
         usd_path = ctx.write("usd.json", FOREIGN)
-        ctx.run("judge", "--input", usd_path, expect=2)
-        ctx.check("外币缺汇率时拒绝落账", True)
+        raw = ctx.run("judge", "--input", usd_path, expect=2)
+        usd = json.loads(raw)
+        ctx.check("外币缺汇率时不给购买结论",
+                  usd["result"]["verdict"]["verdict"] == "DEFER", usd["result"]["verdict"])
+        ctx.check("换不出本币的价格不进入预算计算",
+                  usd["result"]["product"]["price"] is None, usd["result"]["product"])
+        ctx.check("外币缺汇率时账本里也没有原始金额",
+                  any(f["code"] == "EV_CURRENCY_UNCONVERTED"
+                      for f in usd["result"]["gates"]["integrity"]["findings"]),
+                  usd["result"]["gates"]["integrity"])
 
         ctx.json("outcome", did, "--bought", "yes")
         review_path = ctx.write("review.json", {
@@ -203,6 +213,42 @@ def main() -> int:
         doc = ctx.json("doctor")
         ctx.check("数据目录不在 Git 仓库内", not doc["git_roots"], doc)
         ctx.check("仓库内无个人数据文件", doc["checks"][2]["ok"], doc["checks"][2])
+
+        # 账本里必须写判定阶段归一后的理由：外部伪造的 enforced 不许入库
+        ledger = (ctx.home / "decisions.jsonl").read_text(encoding="utf-8").splitlines()
+        rec = json.loads(ledger[0])
+        forged = [r["code"] for r in rec["reasons"]
+                  if r.get("enforced") and r["code"] not in (rec["enforced"] or [])]
+        ctx.check("外部伪造的 enforced 没有进账本", not forged, rec["reasons"])
+        ctx.check("引擎判定的预算项仍标记为 enforced",
+                  "AFFORDABLE_WITHIN_BUDGET" in (rec["enforced"] or []), rec["enforced"])
+        ctx.check("外部自宣的预算结论被丢弃",
+                  all(r["code"] != "BUDGET_BREACH" for r in rec["reasons"]), rec["reasons"])
+
+        # 暂缓也能落账：结论是"先补信息"，不是"不许记录"
+        ctx.json("profile", "set", "finance.liquid_cash=0",
+                 "finance.emergency_fund=0", "finance.near_term_obligations=0")
+        defer = {
+            "product": {"name": "人体工学椅", "price": 1400, "category": "家具/椅子"},
+            "reasons": [
+                {"code": "NEED_REAL", "note": "每天坐八小时，腰疼两个月"},
+                {"code": "PRICE_FAIR", "note": "两家自营同价"},
+                {"code": "DURABILITY_GAIN", "note": "预期使用五年以上"},
+            ],
+            "evidence": [{"kind": "price", "claim": "1400", "value": 1400,
+                          "source_type": "official", "url": "https://example.com/chair",
+                          "observed_at": TODAY}],
+            "recheck_condition": "确认每月储蓄目标与投资额后重新判断",
+        }
+        defer_path = ctx.write("defer.json", defer)
+        deferred = ctx.json("judge", "--input", defer_path)
+        ctx.check("需要跨月支出时降为暂缓，而不是只拦账本",
+                  deferred["result"]["verdict"]["verdict"] == "DEFER", deferred["result"]["verdict"])
+        ctx.check("暂缓带复查条件即可落账", deferred["logged"] is True, deferred)
+        no_recheck = dict(defer)
+        no_recheck.pop("recheck_condition")
+        ctx.run("judge", "--input", ctx.write("defer2.json", no_recheck), expect=2)
+        ctx.check("暂缓没写复查条件时拒绝落账", True)
 
         bad = dict(GOOD)
         bad["reasons"] = [{"code": "IMPULSE_SIGNAL", "note": "看到打折才想买"}]

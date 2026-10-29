@@ -1,0 +1,167 @@
+{
+  "_note": "账本记录必须写判定阶段归一后的理由与证据，而不是原始输入。",
+  "cases": [
+    {
+      "id": "L1",
+      "name": "外部塞进来的 enforced 标记不许进账本",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "电水壶",
+          "price": 399,
+          "category": "家居"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧的水壶漏水不能用",
+            "enforced": true
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "三家自营都是这个价",
+            "enforced": true
+          },
+          {
+            "code": "BUDGET_BREACH",
+            "note": "我自己宣布超预算"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "官网 399",
+            "value": 399,
+            "source_type": "official",
+            "url": "https://example.com/a",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_reason_codes": [
+        "NEED_REAL",
+        "PRICE_FAIR",
+        "AFFORDABLE_WITHIN_BUDGET"
+      ],
+      "expect_enforced": [
+        "AFFORDABLE_WITHIN_BUDGET"
+      ],
+      "expect_evidence_values": [
+        399
+      ],
+      "why": "enforced 是引擎的唯一标记；外部传进来的是伪造，自宣的预算码也是伪造。"
+    },
+    {
+      "id": "L2",
+      "name": "账本记的是换算后的金额与归一后的证据",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某耳机",
+          "price": 100,
+          "currency": "USD",
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧耳机降噪失效三个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官网价与第三方一致"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "官网 100 USD",
+            "value": 100,
+            "currency": "USD",
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "fx",
+            "claim": "USD/CNY 7.10",
+            "value": 7.1,
+            "base": "USD",
+            "quote": "CNY",
+            "source_type": "official",
+            "url": "https://example.com/fx",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_product_price": 710.0,
+      "expect_evidence_values": [
+        710.0,
+        7.1
+      ],
+      "expect_record_currency": "CNY",
+      "why": "账本里留 100 会让人以为花了一百块；留 710 才是真实负担。"
+    },
+    {
+      "id": "L3",
+      "name": "被拒的判定不写账本，判定结果里也不含伪造标记",
+      "profile": {
+        "facts": {}
+      },
+      "draft": {
+        "product": {
+          "name": "相机",
+          "price": 4000,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "想学摄影",
+            "enforced": true
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "4000",
+            "value": 4000,
+            "source_type": "official",
+            "url": "https://example.com/c",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "DEFER",
+      "expect_reason_codes": [
+        "NEED_REAL",
+        "BUDGET_UNVERIFIED"
+      ],
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ],
+      "why": "没写复查条件的暂缓不许落账；但理由本身仍要来源清晰。",
+      "expect_ok": false
+    }
+  ]
+}

@@ -214,8 +214,19 @@ FINANCE_KEYS = (
     "finance.hard_cap_single",
 )
 
+#: 会**直接改变算式结果**的字段。这些字段过期、未确认或缺日期，
+#: 一律按"未知"处理——包括覆盖值、门槛、期望收益率。
+#: 覆盖值最危险：一个没确认过的 ``discretionary_override`` 会让系统
+#: 用别人的数字（或自己的旧数字）判断今天的承受力。
+DECISION_KEYS = FINANCE_KEYS + (
+    "finance.discretionary_override",
+    "finance.spendable_override",
+    "finance.single_purchase_threshold",
+    "invest.expected_annual_return",
+)
+
 #: 仅用于展示的金额字段（不进计算，但要提示待确认/过期）。
-MONEY_KEYS = FINANCE_KEYS + (
+MONEY_KEYS = DECISION_KEYS + (
     "finance.net_worth",
     "finance.receivable",
     "finance.liabilities",
@@ -481,21 +492,34 @@ def fact_confirmed(profile: dict, key: str) -> bool:
 def fact_stale(profile: dict, key: str) -> bool:
     """过期 = 不可信。
 
-    三种情况都算不可信：
+    四种情况都算不可信：
     1. 超过保鲜期；
-    2. 财务类字段连 updated_at 都没有；
-    3. 标记为未确认（历史快照、别人给的数字）。
+    2. 决策类字段连 updated_at 都没有（手写画像不能绕过时效检查）；
+    3. 标记为未确认（历史快照、别人给的数字、导入的候选稿）；
+    4. 值不是数字而字段声明为 number。
+
+    第 3 条对 ``DECISION_KEYS`` 全量生效：覆盖值、单笔门槛、期望收益率
+    都会直接改算式结果，未确认就等于没有。
     """
     spec = FACT_SPECS.get(key) or {}
-    ttl = spec.get("ttl")
-    if not fact_confirmed(profile, key) and key in FINANCE_KEYS:
+    decisive = key in DECISION_KEYS
+    if decisive and not fact_confirmed(profile, key):
         return True
+    ttl = spec.get("ttl")
     if not ttl:
         return False
     age = fact_age(profile, key)
     if age is None:
-        return key in FINANCE_KEYS
-    return age > ttl
+        return decisive
+    if age > ttl:
+        return True
+    if spec.get("type") == "number":
+        value = fact(profile, key)
+        if value is not None and (
+            not isinstance(value, (int, float)) or isinstance(value, bool)
+        ):
+            return True
+    return False
 
 
 def gaps(profile: dict, limit: int | None = None, min_prio: int = 3) -> list:
@@ -545,6 +569,11 @@ def financial_snapshot(profile: dict) -> dict:
 
     任何一项缺失就留 None，绝不用 0 顶替——把没填的储蓄/投资当成 0，
     会直接高估可支配余额。
+
+    ``surplus_basis`` 说明这个数字有多硬：
+    - ``override`` 用户指定，最硬
+    - ``income``  完整推算，可用于结论
+    - ``estimated`` 缺储蓄或投资额，**只能当上界**，不能用来支撑"买得起"
     """
     income = fact_fresh(profile, "finance.monthly_income")
     expense = fact_fresh(profile, "finance.monthly_fixed_expense")
@@ -552,27 +581,27 @@ def financial_snapshot(profile: dict) -> dict:
     invest_month = fact_fresh(profile, "invest.monthly_contribution")
     surplus_override = fact_fresh(profile, "finance.discretionary_override")
 
-    surplus = None
-    estimated = False
+    surplus, estimated, surface_basis = None, False, None
     if isinstance(surplus_override, (int, float)):
-        surplus = float(surplus_override)
+        surplus, surface_basis = float(surplus_override), "override"
     elif isinstance(income, (int, float)) and isinstance(expense, (int, float)):
         surplus = float(income) - float(expense) - float(save or 0) - float(invest_month or 0)
         # 储蓄目标或投资额没填 → 余额被高估，必须标记
         estimated = (save is None) or (invest_month is None)
+        surface_basis = "estimated" if estimated else "income"
 
     cash = fact_fresh(profile, "finance.liquid_cash")
     emergency = fact_fresh(profile, "finance.emergency_fund")
     near = fact_fresh(profile, "finance.near_term_obligations")
     spend_override = fact_fresh(profile, "finance.spendable_override")
 
-    spendable, spendable_note = None, ""
+    spendable, spendable_note, spendable_basis = None, "", None
     if isinstance(spend_override, (int, float)):
-        spendable = float(spend_override)
+        spendable, spendable_basis = float(spend_override), "override"
         spendable_note = "按你手动指定的可动用金额"
     elif isinstance(cash, (int, float)) and isinstance(emergency, (int, float)) \
             and isinstance(near, (int, float)):
-        spendable = max(0.0, float(cash) - float(emergency) - float(near))
+        spendable, spendable_basis = max(0.0, float(cash) - float(emergency) - float(near)), "derived"
         spendable_note = "活期/现金 − 应急金 − 近期必要支出"
     elif isinstance(cash, (int, float)):
         spendable_note = "只填了现金总额，未扣应急金与近期支出 ⇒ 不把存款当成都能花"
@@ -587,12 +616,14 @@ def financial_snapshot(profile: dict) -> dict:
         k for k in MONEY_KEYS
         if fact(profile, k) is not None and fact_confirmed(profile, k) and fact_stale(profile, k)
     ]
-    missing = [k for k in FINANCE_KEYS if fact(profile, k) is None]
+    missing = [k for k in FINANCE_KEYS if fact_fresh(profile, k) is None]
 
     return {
         "monthly_surplus": None if surplus is None else round(surplus, 2),
         "surplus_estimated": estimated,
+        "surplus_basis": surface_basis,
         "spendable": None if spendable is None else round(spendable, 2),
+        "spendable_basis": spendable_basis,
         "spendable_note": spendable_note,
         "hard_cap": fact_fresh(profile, "finance.hard_cap_single"),
         "emergency_fund": emergency,

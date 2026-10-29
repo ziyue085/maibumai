@@ -38,6 +38,7 @@ RULE_TIER = {
     "INFO_GAP": "DEFER",
     "USAGE_IMPLAUSIBLE": "DEFER",
     "BUDGET_TIGHT": "DEFER",
+    "BUDGET_UNVERIFIED": "DEFER",
     # 正向：支撑购买
     "NEED_REAL": "BUY",
     "SUBSTITUTE_INADEQUATE": "BUY",
@@ -65,6 +66,7 @@ RULE_ZH = {
     "INFO_GAP": "关键信息缺失",
     "USAGE_IMPLAUSIBLE": "使用场景与真实使用模式冲突",
     "BUDGET_TIGHT": "需跨月支出，挤占其他消费",
+    "BUDGET_UNVERIFIED": "财务承受能力无法确认",
     "NEED_REAL": "需求先于接触商品而存在且具体",
     "SUBSTITUTE_INADEQUATE": "现有替代方案确实不够用",
     "PRICE_FAIR": "现价处于合理区间",
@@ -75,6 +77,10 @@ RULE_ZH = {
 }
 
 TIERS = ("DONT_BUY", "SWITCH", "DEFER", "BUY")
+
+#: 只跟"这笔钱"有关的拦截码。它们描述的是**这个价格**买不起，
+#: 而不是这件事不该做——所以遇到买得起的替代方案时，可以让位给「建议替换方案」。
+MONEY_TIER_CODES = ("BUDGET_BREACH", "BUDGET_TIGHT", "UNAFFORDABLE_DEBT")
 
 VERDICT_ZH = {
     "BUY": "建议购买",
@@ -126,16 +132,62 @@ def _codes(reasons) -> list:
     return [r["code"] for r in _reason_items(reasons) if r["code"]]
 
 
+#: 替代方案的**结构性**门槛（不依赖画像）。
+#: 名称只是最低要求：没有价格就无法比较，没有来源就无法核实。
+ALT_PROBLEM_ZH = {
+    "ALT_NO_NAME": "替代方案没写名称：无法核实是否真的存在",
+    "ALT_NO_PRICE": "替代方案没有价格：用户无法判断换过去是否真的省钱",
+    "ALT_NO_SOURCE": "替代方案没有来源：无法核实是否真的存在",
+    "ALT_PERIOD_MISSING": "替代品是订阅但没写计费周期，年化成本无法比较",
+    "ALT_PRICE_UNCONVERTED": "替代品价格是外币且没有有效汇率，无法与预算比较",
+    "ALT_PRICE_UNVERIFIED": "替代品的价格没有可核验的证据：换过去省不省钱无法核实",
+    "ALT_OVER_BUDGET": "替代方案同样超出你的承受能力，换过去并不能解决问题",
+    "ALT_NEEDS_TIME": "替代方案同样需要跨月支出，换过去并不能解决问题",
+    "ALT_BUDGET_UNKNOWN": "替代方案的预算状态无法确认，不能据此给出替换建议",
+}
+
+#: 问题码 → 审计码。两类码分开命名，账本里一眼能看出是谁判的。
+ALT_AUDIT_CODE = {
+    "ALT_NO_NAME": "AUD_SWITCH_NO_ALT",
+    "ALT_NO_PRICE": "AUD_ALT_NO_PRICE",
+    "ALT_NO_SOURCE": "AUD_ALT_NO_SOURCE",
+    "ALT_PERIOD_MISSING": "AUD_ALT_PERIOD_MISSING",
+    "ALT_PRICE_UNCONVERTED": "AUD_ALT_PRICE_UNCONVERTED",
+    "ALT_PRICE_UNVERIFIED": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_OVER_BUDGET": "AUD_ALT_OVER_BUDGET",
+    "ALT_NEEDS_TIME": "AUD_ALT_BUDGET_UNVERIFIED",
+    "ALT_BUDGET_UNKNOWN": "AUD_ALT_BUDGET_UNVERIFIED",
+}
+
+
+def alternative_problems(alt) -> list:
+    """替代方案是否够格支撑一条 SWITCH。返回问题码列表，空表示合格。
+
+    这个函数只做结构检查；预算、汇率、证据由引擎补进同一个列表。
+    """
+    if not isinstance(alt, dict) or not str(alt.get("name") or "").strip():
+        return ["ALT_NO_NAME"]
+    problems = []
+    price = alt.get("price")
+    if not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
+        problems.append("ALT_NO_PRICE")
+    if not str(alt.get("source") or "").strip():
+        problems.append("ALT_NO_SOURCE")
+    return problems
+
+
 def _valid_alternative(alt) -> bool:
-    if not isinstance(alt, dict):
-        return False
-    return bool(str(alt.get("name") or "").strip())
+    return not alternative_problems(alt)
 
 
-def resolve(reasons, alternative=None, override=None):
+def resolve(reasons, alternative=None, override=None, alt_problems=None):
     """按固定优先级把规则码解析成结论。
 
     优先级：硬拦截 > 换方案 > 暂缓 > 购买。任何一级命中即短路。
+
+    ``alt_problems``：引擎算出的替代方案问题清单（结构 + 预算 + 汇率 + 证据）。
+    传了就以它为准；不传则只做结构检查。**不合格的替代方案不产出 SWITCH**——
+    推荐一个买不起或有价无据的东西，比不推荐更糟。
     """
     items = _reason_items(reasons)
     codes = [i["code"] for i in items if i["code"]]
@@ -147,6 +199,8 @@ def resolve(reasons, alternative=None, override=None):
         if tier:
             tiers[tier].append(item["code"])
 
+    problems = alternative_problems(alternative) if alt_problems is None else list(alt_problems)
+
     def result(verdict, note="", overridden=False):
         return {
             "verdict": verdict,
@@ -156,11 +210,18 @@ def resolve(reasons, alternative=None, override=None):
             "overridden": overridden,
             "enforced": [e["code"] for e in enforced],
             "unknown_codes": unknown,
+            "alt_problems": problems,
         }
 
+    # 只被"钱"挡住时，一个买得起的替代方案就是更好的答案：
+    # 「不建议购买」等于把人留在原地，「建议替换方案」才给得出下一步。
+    money_only_block = bool(tiers["DONT_BUY"]) and all(
+        c in MONEY_TIER_CODES for c in tiers["DONT_BUY"])
+
     base = (
-        "DONT_BUY" if tiers["DONT_BUY"]
-        else "SWITCH" if tiers["SWITCH"] and _valid_alternative(alternative)
+        "DONT_BUY" if tiers["DONT_BUY"] and not money_only_block
+        else "SWITCH" if tiers["SWITCH"] and not problems
+        else "DONT_BUY" if tiers["DONT_BUY"]
         else "DEFER" if tiers["SWITCH"]
         else "DEFER" if tiers["DEFER"]
         else "BUY" if tiers["BUY"] and any(c in BUY_ANCHORS for c in tiers["BUY"])
@@ -180,14 +241,23 @@ def resolve(reasons, alternative=None, override=None):
             return result("DONT_BUY", "硬拦截不可被驳回：" + "、".join(tiers["DONT_BUY"]))
         return result(target, f"人工下调：{override.get('reason') or '未说明理由'}", overridden=True)
 
-    if tiers["DONT_BUY"]:
+    # 只被钱挡住、且替代方案合格时，不在这一步否决，落到下面的换方案分支
+    money_switch = money_only_block and bool(tiers["SWITCH"]) and not problems
+    if tiers["DONT_BUY"] and not money_switch:
         return result("DONT_BUY", "硬拦截：" + "、".join(tiers["DONT_BUY"]))
 
     if tiers["SWITCH"]:
-        if _valid_alternative(alternative):
-            return result("SWITCH")
+        if not problems:
+            note = ""
+            if money_only_block:
+                note = ("这个价格买不起，但替代方案在承受范围内："
+                        + "、".join(tiers["DONT_BUY"]) + " 只否定这个买法")
+            return result("SWITCH", note)
         return result(
-            "DEFER", "命中换方案条件但未给出具体替代品，只能先暂缓：" + "、".join(tiers["SWITCH"])
+            "DEFER",
+            "命中换方案条件，但替代方案还不成立（"
+            + "；".join(ALT_PROBLEM_ZH.get(p, p) for p in problems)
+            + "），只能先暂缓：" + "、".join(tiers["SWITCH"]),
         )
 
     if tiers["DEFER"]:
@@ -303,19 +373,29 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
             )
 
     tiers = {t: [c for c in codes if RULE_TIER.get(c) == t] for t in TIERS}
+    alt_info = (decision.get("numbers") or {}).get("alternative") or {}
+    alt_engine_problems = list(alt_info.get("problems") or [])
 
+    money_only_block = bool(tiers["DONT_BUY"]) and all(
+        c in MONEY_TIER_CODES for c in tiers["DONT_BUY"])
     if tiers["DONT_BUY"] and verdict != "DONT_BUY":
-        findings.append(
-            _finding("AUD_TIER_CONFLICT", "BLOCK",
-                     f"存在硬拦截 {tiers['DONT_BUY']}，结论只能是「不建议购买」")
-        )
+        # 只被钱挡住、且替代方案合格时，"建议替换方案"是允许的（见 resolve）
+        allowed_switch = (verdict == "SWITCH" and money_only_block
+                          and not alt_engine_problems)
+        if not allowed_switch:
+            findings.append(
+                _finding("AUD_TIER_CONFLICT", "BLOCK",
+                         f"存在硬拦截 {tiers['DONT_BUY']}，结论只能是「不建议购买」")
+            )
     if verdict == "DONT_BUY" and not tiers["DONT_BUY"]:
         findings.append(
             _finding("AUD_DONTBUY_NO_BLOCK", "BLOCK", "不建议购买必须由至少一条硬拦截理由支撑")
         )
     if tiers["SWITCH"] and not tiers["DONT_BUY"] and verdict != "SWITCH":
-        downgraded_for_missing_alt = verdict == "DEFER" and not _valid_alternative(alt)
-        if not downgraded_for_missing_alt:
+        downgraded_for_alt = verdict == "DEFER" and (
+            not _valid_alternative(alt) or bool(alt_engine_problems)
+        )
+        if not downgraded_for_alt:
             findings.append(
                 _finding("AUD_TIER_CONFLICT", "BLOCK",
                          f"存在换方案理由 {tiers['SWITCH']}，结论应为「建议替换方案」")
@@ -332,51 +412,46 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
         )
 
     if verdict == "SWITCH":
-        if not _valid_alternative(alt):
-            findings.append(_finding("AUD_SWITCH_NO_ALT", "BLOCK", "建议替换方案必须给出替代品的名称"))
-        else:
-            if not isinstance(alt.get("price"), (int, float)) or alt.get("price") <= 0:
-                if not str(alt.get("price_note") or "").strip():
-                    findings.append(
-                        _finding("AUD_ALT_NO_PRICE", "BLOCK",
-                                 "替代方案没有价格：用户无法判断换过去是否真的省钱")
-                    )
-            if not str(alt.get("source") or "").strip():
-                findings.append(
-                    _finding("AUD_ALT_NO_SOURCE", "BLOCK", "替代方案没有来源：无法核实是否真的存在")
-                )
-            # 替代品也要过同一套预算与证据检查——否则"换方案"可能换成更买不起的
-            alt_info = (decision.get("numbers") or {}).get("alternative") or {}
-            if (alt_info.get("budget") or {}).get("status") == "breach":
-                findings.append(
-                    _finding(
-                        "AUD_ALT_OVER_BUDGET", "BLOCK",
-                        "替代方案同样超出你的承受能力，换过去并不能解决问题",
-                        {"budget": alt_info.get("budget")},
-                    )
-                )
+        alt_info = (decision.get("numbers") or {}).get("alternative") or {}
+        problems = list(alt_info.get("problems") or alternative_problems(alt))
+        if not problems:
+            status = (alt_info.get("budget") or {}).get("status")
+            if status == "breach":
+                problems.append("ALT_OVER_BUDGET")
+            elif status == "tight":
+                problems.append("ALT_NEEDS_TIME")
+            elif status in ("unknown", None):
+                problems.append("ALT_BUDGET_UNKNOWN")
+            # 「更便宜」是这套系统最常给出的推荐理由，它自己必须有出处
             alt_price = alt.get("price")
             if isinstance(alt_price, (int, float)) and alt_price > 0:
                 supported = any(
                     isinstance(e, dict)
                     and e.get("kind") in ("price", "promo")
-                    and str(e.get("subject") or "target").strip().lower() in ("alternative", "reference")
+                    and str(e.get("subject") or "target").strip().lower() == "alternative"
                     and isinstance(e.get("value"), (int, float))
                     and abs(e["value"] - alt_price) / alt_price <= 0.05
                     for e in evidence
                 )
                 if not supported:
-                    findings.append(
-                        _finding(
-                            "AUD_ALT_UNVERIFIED_PRICE", "WARN",
-                            "替代品的价格没有独立证据支撑，建议补一条带链接的报价",
-                        )
-                    )
-            if alt_info.get("period_missing"):
-                findings.append(
-                    _finding("AUD_ALT_PERIOD_MISSING", "WARN",
-                             "替代品是订阅但没写计费周期，年化成本无法比较")
+                    problems.append("ALT_PRICE_UNVERIFIED")
+        for problem in dict.fromkeys(problems):
+            findings.append(
+                _finding(
+                    ALT_AUDIT_CODE.get(problem, "AUD_ALT_INCOMPLETE"),
+                    "BLOCK",
+                    ALT_PROBLEM_ZH.get(problem, problem),
+                    {"problem": problem, "alternative": alt_info},
                 )
+            )
+    elif tiers["SWITCH"] and not tiers["DONT_BUY"] and verdict == "DEFER":
+        findings.append(
+            _finding(
+                "AUD_ALT_UNQUALIFIED", "WARN",
+                "有换方案理由，但替代方案不完整，已降级为暂缓：建议补齐名称、价格、来源与周期",
+                {"problems": alt_engine_problems or alternative_problems(alt)},
+            )
+        )
 
     if verdict == "DEFER" and not str(decision.get("recheck_condition") or "").strip():
         findings.append(

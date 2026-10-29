@@ -43,7 +43,7 @@ CATEGORY_RULES = [
 _SORTED_RULES = sorted(CATEGORY_RULES, key=lambda kv: len(kv[0]), reverse=True)
 
 DEFAULT_THRESHOLD = 500
-DEFAULT_SMALL = 100
+DEFAULT_SMALL = 100            # 以下快速通道
 #: **安全底线**倍数：可动用存量 + 这么多个月结余都覆盖不了，才判定"真的买不起"。
 #: 这不是消费标准。用 6 倍月结余当红线，对有储蓄但收入不稳定的用户是错的——
 #: 他们的问题不是"月收入撑不住"，而是"这笔钱该不该从存量里出"。
@@ -87,7 +87,9 @@ def annual_of(price, period):
 
 
 def threshold_of(profile: dict) -> int:
-    explicit = store.fact(profile, "finance.single_purchase_threshold")
+    """单笔门槛。只认**已确认且未过期**的值——一个没确认的门槛
+    能把重决策降级成常规决策，这是最容易被绕过的一环。"""
+    explicit = store.fact_fresh(profile, "finance.single_purchase_threshold")
     if isinstance(explicit, (int, float)) and explicit > 0:
         return int(explicit)
     disc = store.discretionary(profile)
@@ -103,7 +105,13 @@ def level_of(price, category=None, period="once", profile=None) -> dict:
     """
     profile = profile or {}
     behavior = profile.get("behavior") or {}
+    # 快判上限**只能收紧，不能放大**：L1 意味着"不值得查证"，
+    # 把这个上限抬到一万块就等于关掉整套证据要求。
+    # 这个字段不在可写字段里（正常流程改不到），但仍然防一手。
     small = behavior.get("small_amount_fastpath", DEFAULT_SMALL)
+    if not isinstance(small, (int, float)) or isinstance(small, bool) or small < 0:
+        small = DEFAULT_SMALL
+    small = min(float(small), float(DEFAULT_SMALL))
     threshold = threshold_of(profile)
     kind = classify_category(category)
 
@@ -217,12 +225,14 @@ def budget_status(price, profile, monthly_equiv=None) -> dict:
 
     if isinstance(surplus, (int, float)) and flow <= max(0.0, surplus):
         return {**out, "status": "ok", "code": "AFFORDABLE_WITHIN_BUDGET",
+                "basis": "monthly",
                 "share": _ratio(flow, surplus), "months": _ratio(price, surplus),
                 "detail": f"每月摊 {flow:.0f} 元，在月可支配 {surplus:.0f} 元之内"}
 
     if isinstance(spend, (int, float)) and price <= spend:
         ratio = _ratio(price, spend) or 1.0
         return {**out, "status": "ok_stock", "code": "AFFORDABLE_WITHIN_BUDGET",
+                "basis": "stock",
                 "share": ratio, "months": _ratio(price, surplus) if surplus else None,
                 "heavy": ratio > 0.5,
                 "detail": f"月现金流不够，但可动用存量 {spend:.0f} 元拿得出（占 {ratio:.0%}）"}
@@ -237,7 +247,7 @@ def budget_status(price, profile, monthly_equiv=None) -> dict:
         capacity = (spend or 0) + max(0.0, surplus) * BREACH_MULTIPLE
         if price <= capacity:
             months = round((price - (spend or 0)) / surplus, 1) if surplus > 0 else None
-            return {**out, "status": "tight", "code": "BUDGET_TIGHT",
+            return {**out, "status": "tight", "code": "BUDGET_TIGHT", "basis": "monthly",
                     "share": _ratio(price, surplus), "months": months, "capacity": round(capacity, 2),
                     "detail": "需要动用存量"
                               + (f"并再攒约 {months} 个月" if months else "")

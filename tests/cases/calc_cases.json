@@ -481,6 +481,89 @@
         "code": "BUDGET_TIGHT"
       },
       "why": "9 倍月结余够紧张，但离'一年也攒不出来'还远。用 6 倍当红线会误杀有储蓄的人。"
+    },
+    {
+      "id": "C29",
+      "fn": "threshold_of",
+      "name": "未确认的单笔门槛不参与分级",
+      "args": [
+        {
+          "facts": {
+            "finance.single_purchase_threshold": {
+              "value": 99999,
+              "confirmed": false
+            },
+            "finance.discretionary_override": {
+              "value": 100,
+              "updated_at": "TODAY"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "value": 500
+      },
+      "why": "门槛决定一笔消费走不走重决策；未确认的门槛能直接把审核强度降下来。"
+    },
+    {
+      "id": "C30",
+      "fn": "threshold_of",
+      "name": "缺日期的单笔门槛不参与分级",
+      "args": [
+        {
+          "facts": {
+            "finance.single_purchase_threshold": {
+              "value": 99999
+            },
+            "finance.discretionary_override": {
+              "value": 100,
+              "updated_at": "TODAY"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "value": 500
+      },
+      "why": "手写画像不写日期就能绕过时效检查，这是后门。"
+    },
+    {
+      "id": "C31",
+      "fn": "level_of",
+      "name": "快判上限只能收紧，不能放大到 99999",
+      "args": [
+        400,
+        "数码配件",
+        "once",
+        {
+          "behavior": {
+            "small_amount_fastpath": 99999
+          }
+        }
+      ],
+      "expect": {
+        "level": "L2"
+      },
+      "why": "L1 免证据也免财务画像；上限一旦能放大，等于一键关掉证据要求。"
+    },
+    {
+      "id": "C32",
+      "fn": "level_of",
+      "name": "快判上限填了非数字按默认值",
+      "args": [
+        80,
+        "数码配件",
+        "once",
+        {
+          "behavior": {
+            "small_amount_fastpath": "一百"
+          }
+        }
+      ],
+      "expect": {
+        "level": "L1"
+      },
+      "why": "类型不对就退回默认，不猜也不崩。"
     }
   ]
 }

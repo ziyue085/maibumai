@@ -246,14 +246,22 @@
         "prediction": {
           "uses_per_month": 20,
           "months": 36
-        }
+        },
+        "recheck_condition": "查到 3 天内的公开汇率后重新判断"
       },
-      "expect_blocking": [
-        "EV_CURRENCY_UNCONVERTED",
-        "AUD_BUY_NO_PRICE",
-        "AUD_EVIDENCE_BLOCKING"
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_verdict": "DEFER",
+      "expect_findings": [
+        "EV_CURRENCY_UNCONVERTED"
       ],
-      "expect_ok": false
+      "expect_gate": {
+        "integrity": false
+      },
+      "why": "汇率不成立时不能用外币数字硬比；结论降为暂缓，证据缺陷仍留在完整性门上，账本可以记但记的是「判不了」。",
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ]
     },
     {
       "id": "P06",
@@ -316,7 +324,7 @@
     },
     {
       "id": "P07",
-      "name": "订阅没写计费周期：年度成本不可信，阻断",
+      "name": "订阅没写计费周期：结论降为暂缓，不是买了再拦",
       "profile": {
         "facts": {
           "finance.discretionary_override": 5000
@@ -351,13 +359,17 @@
             "url": "https://example.com/g",
             "observed_at": "2026-10-28"
           }
-        ]
+        ],
+        "recheck_condition": "确认是月付还是年付后重新判断"
       },
       "expect_level": "L3",
-      "expect_blocking": [
-        "AUD_SUBSCRIPTION_PERIOD"
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_verdict": "DEFER",
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
       ],
-      "expect_ok": false
+      "why": "月付 200 和年付 200 差 12 倍。旧行为是给出「建议购买」再拦住记账，等于让人站在原地；现在直接说「先确认计费周期」。"
     },
     {
       "id": "P08",
@@ -448,13 +460,16 @@
         "prediction": {
           "uses_per_month": 20,
           "months": 60
-        }
+        },
+        "recheck_condition": "找到价格与来源齐全的替代方案后重新判断"
       },
-      "expect_verdict": "SWITCH",
-      "expect_blocking": [
-        "AUD_ALT_NO_PRICE"
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_NO_PRICE"
       ],
-      "expect_ok": false
+      "why": "没有价格的替代品不能成为建议：用户无法判断换过去是否省钱。降级为暂缓，并说清缺什么。"
     },
     {
       "id": "P10",
@@ -733,7 +748,7 @@
     },
     {
       "id": "P16",
-      "name": "重决策但没填预算：先阻断，要求补画像",
+      "name": "重决策但没填预算：结论降为暂缓，不是只拦账本",
       "profile": {
         "facts": {}
       },
@@ -766,12 +781,19 @@
             "url": "https://example.com/p",
             "observed_at": "2026-10-28"
           }
-        ]
+        ],
+        "recheck_condition": "补齐收入、固定支出与可动用存量后重新判断"
       },
-      "expect_blocking": [
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_verdict": "DEFER",
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ],
+      "expect_findings": [
         "FIN_BUDGET_UNKNOWN"
       ],
-      "expect_ok": false
+      "why": "以前是「输出 BUY + 拦住落账」，等于把人晾着；现在是先说「先去补财务信息」。"
     },
     {
       "id": "P17",
@@ -862,7 +884,7 @@
     },
     {
       "id": "P19",
-      "name": "财务数据过期：不参与计算，重决策直接拦",
+      "name": "财务数据过期：不参与计算，结论降为暂缓",
       "profile": {
         "facts": {
           "finance.monthly_income": {
@@ -904,20 +926,26 @@
             "url": "https://example.com/p",
             "observed_at": "2026-10-28"
           }
-        ]
+        ],
+        "recheck_condition": "确认最近三个月的收入与支出后重新判断"
       },
-      "expect_blocking": [
-        "FIN_BUDGET_UNKNOWN"
-      ],
-      "expect_ok": false,
+      "expect_blocking": [],
+      "expect_ok": true,
       "expect_gate": {
-        "financial": false
+        "financial": true
       },
-      "why": "半年前的收入不能拿来算今天的承受力；过期=不知道。"
+      "why": "半年前的收入不能拿来算今天的承受力；过期=不知道，而不知道就不能说买得起。",
+      "expect_verdict": "DEFER",
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ],
+      "expect_findings": [
+        "FIN_PROFILE_STALE"
+      ]
     },
     {
       "id": "P20",
-      "name": "储蓄目标/月投资未填：可支配余额被高估，大额购买先确认",
+      "name": "储蓄目标/月投资未填：结余只是上界，结论降为暂缓",
       "profile": {
         "facts": {
           "finance.monthly_income": 2600,
@@ -953,14 +981,19 @@
             "url": "https://example.com/p",
             "observed_at": "2026-10-28"
           }
-        ]
+        ],
+        "recheck_condition": "确认每月储蓄目标与投资额后重新判断"
       },
-      "expect_verdict": "BUY",
-      "expect_blocking": [
-        "FIN_SURPLUS_ESTIMATED"
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "1200 元吃掉「上界结余」1500 的 80%；缺的储蓄与投资只要吃掉一点点就翻转，所以不能断言买得起。",
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
       ],
-      "expect_ok": false,
-      "why": "没填储蓄和投资，1500 的结余是虚高的；大额前必须确认。"
+      "expect_findings": [
+        "FIN_SURPLUS_ESTIMATED"
+      ]
     },
     {
       "id": "P21",
@@ -1063,7 +1096,7 @@
     },
     {
       "id": "P23",
-      "name": "只填了现金、没填应急金：不把存款都当成能花",
+      "name": "只填了现金、没填应急金：结论降为暂缓",
       "profile": {
         "facts": {
           "finance.monthly_income": 800,
@@ -1102,17 +1135,23 @@
             "url": "https://example.com/p",
             "observed_at": "2026-10-28"
           }
-        ]
+        ],
+        "recheck_condition": "补齐应急金与近半年必要支出后重新判断"
       },
-      "expect_blocking": [
-        "FIN_BUDGET_UNKNOWN"
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "有 3 万现金不等于有 3 万可花；先问应急金和近期支出，而不是假设。",
+      "expect_verdict": "DEFER",
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
       ],
-      "expect_ok": false,
-      "why": "有 3 万现金不等于有 3 万可花。先问应急金和近期支出，而不是假设。"
+      "expect_findings": [
+        "FIN_BUDGET_UNKNOWN"
+      ]
     },
     {
       "id": "P24",
-      "name": "替代品超出自设上限：不能往更买不起的方向换",
+      "name": "替代品超出自设上限：不给 SWITCH，降为暂缓",
       "profile": {
         "facts": {
           "finance.monthly_income": 2600,
@@ -1156,14 +1195,17 @@
             "url": "https://example.com/p",
             "observed_at": "2026-10-28"
           }
-        ]
+        ],
+        "recheck_condition": "找到 3000 元以内且有报价出处的替代品后重新判断"
       },
-      "expect_verdict": "SWITCH",
-      "expect_blocking": [
-        "AUD_ALT_OVER_BUDGET"
-      ],
-      "expect_ok": false,
-      "why": "换方案也要过预算关，否则等于把人从一个坑推到更深的坑。"
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "换方案也要过预算关与证据关；过不了就不叫替换方案，只能先暂缓。",
+      "expect_alt_problems": [
+        "ALT_OVER_BUDGET",
+        "ALT_PRICE_UNVERIFIED"
+      ]
     },
     {
       "id": "P25",
@@ -1339,15 +1381,22 @@
             "url": "https://example.com/fx",
             "observed_at": "2026-09-20"
           }
-        ]
+        ],
+        "recheck_condition": "查到 3 天内的公开汇率后重新判断"
       },
-      "expect_blocking": [
-        "EV_CURRENCY_UNCONVERTED",
-        "AUD_BUY_NO_PRICE",
-        "AUD_EVIDENCE_BLOCKING"
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "汇率不成立时不能用外币数字硬比；结论降为暂缓，证据缺陷仍留在完整性门上，账本可以记但记的是「判不了」。",
+      "expect_verdict": "DEFER",
+      "expect_findings": [
+        "EV_CURRENCY_UNCONVERTED"
       ],
-      "expect_ok": false,
-      "why": "汇率保鲜期 3 天，一个月前的 7.10 不能当作今天的汇率。"
+      "expect_gate": {
+        "integrity": false
+      },
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ]
     },
     {
       "id": "P29",
@@ -1684,19 +1733,19 @@
       },
       "owned": [
         {
-          "name": "联想小新 Pro 14",
+          "name": "某品牌轻薄本",
           "category": "数码/电脑",
           "condition": "worn",
           "status": "active"
         },
         {
-          "name": "Pura 70 Pro",
+          "name": "某品牌手机 A",
           "category": "数码/手机",
           "condition": "good",
           "status": "active"
         },
         {
-          "name": "Pixel 6 Pro",
+          "name": "某品牌手机 B",
           "category": "数码/手机",
           "condition": "good",
           "status": "active"
@@ -1792,6 +1841,875 @@
         "invest_opportunity"
       ],
       "why": "没设收益率就不该出现『十年后是多少』。情绪价值是收益，不是负债。"
+    },
+    {
+      "id": "W1",
+      "name": "未确认的『可支配覆盖值』不参与计算",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": {
+            "value": 20000,
+            "confirmed": false
+          }
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "相机",
+          "price": 4000,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "已经借机拍了一个月，每周都出去拍"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "三家官方渠道同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "二手残值约七成"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "4000",
+            "value": 4000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "确认可支配余额后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_enforced": [
+        "BUDGET_TIGHT"
+      ],
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "一个没确认过的覆盖值能让 4000 元变成「在预算内」——这正是要挡的。"
+    },
+    {
+      "id": "W2",
+      "name": "未确认的『单笔门槛』不能把重决策降级",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 2000,
+          "finance.single_purchase_threshold": {
+            "value": 99999,
+            "confirmed": false
+          }
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "键盘",
+          "price": 600,
+          "category": "数码/外设"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "现有键盘三个键失灵"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "DURABILITY_GAIN",
+            "note": "全金属机身预期五年"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "600",
+            "value": 600,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "prediction": {
+          "uses_per_month": 20,
+          "months": 60
+        }
+      },
+      "expect_verdict": "BUY",
+      "expect_level": "L3",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "门槛若被未确认值抬高，600 元就掉进 L2，只需两条理由——等级是最容易被绕过的一环。"
+    },
+    {
+      "id": "W3",
+      "name": "财务字段缺 updated_at：按未知处理",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": {
+            "value": 2600,
+            "no_date": true
+          },
+          "finance.monthly_fixed_expense": {
+            "value": 1100,
+            "no_date": true
+          },
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "显示器",
+          "price": 3000,
+          "category": "数码/显示器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧显示器坏点影响修图"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "两家自营同价"
+          },
+          {
+            "code": "DURABILITY_GAIN",
+            "note": "预期使用五年以上"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "3000",
+            "value": 3000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "补上日期后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ],
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "手写一份没有日期的画像就能永久绕过时效检查，这是个后门。"
+    },
+    {
+      "id": "W4",
+      "name": "财务字段不是数字：按未知处理",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": "两千六",
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "显示器",
+          "price": 3000,
+          "category": "数码/显示器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧显示器坏点影响修图"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "两家自营同价"
+          },
+          {
+            "code": "DURABILITY_GAIN",
+            "note": "预期使用五年以上"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "3000",
+            "value": 3000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "改成数字后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ],
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "字符串能悄悄参与比较或抛异常，两种都不该发生。"
+    },
+    {
+      "id": "W5",
+      "name": "未确认的『可动用存量覆盖值』不参与计算",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.spendable_override": {
+            "value": 100000,
+            "confirmed": false
+          }
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "相机",
+          "price": 8000,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "已经借机拍了一个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "同成色二手行情 7500-8500"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "二手残值稳定"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "8000",
+            "value": 8000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "确认可动用存量后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_enforced": [
+        "BUDGET_TIGHT"
+      ],
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "一个没确认的存量覆盖值等于「存款都能花」，正好是这条要挡的。"
+    },
+    {
+      "id": "W6",
+      "name": "过期的期望收益率不产生复利数字",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "invest.expected_annual_return": {
+            "value": 12,
+            "days_ago": 400
+          }
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_numbers_absent": [
+        "invest_opportunity"
+      ],
+      "why": "收益率过期就当没设过；拿旧假设做复利测算，是把不确定说成确定。"
+    },
+    {
+      "id": "W7",
+      "name": "结余虽被高估，但占比很小时不拦",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "机械键盘",
+          "price": 600,
+          "category": "数码/外设"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "现有键盘三个键失灵"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "DURABILITY_GAIN",
+            "note": "全金属机身预期五年"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "600",
+            "value": 600,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "prediction": {
+          "uses_per_month": 20,
+          "months": 60
+        }
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_warn": [
+        "FIN_SURPLUS_ESTIMATED"
+      ],
+      "why": "反向对照：600 只占上界结余的 40%，缺的储蓄与投资要吃掉六成才翻转，不必拦。"
+    },
+    {
+      "id": "W8",
+      "name": "结余被高估但存量拿得出：不降级",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.liquid_cash": 30000,
+          "finance.emergency_fund": 5000,
+          "finance.near_term_obligations": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "相机",
+          "price": 4000,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "已经借机拍了一个月，每周都出去拍"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "三家官方渠道同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "二手残值约七成，随时能出手"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "4000",
+            "value": 4000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "prediction": {
+          "uses_per_month": 4,
+          "months": 60
+        }
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "存量覆盖时，月结余是不是估的无关紧要；不能因为一个不相关的估算就把结论压下去。"
+    },
+    {
+      "id": "W9",
+      "name": "未确认的应急金让『可动用存量』变成未知",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.liquid_cash": 30000,
+          "finance.emergency_fund": {
+            "value": 6000,
+            "confirmed": false
+          },
+          "finance.near_term_obligations": 8000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "相机",
+          "price": 8000,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "已经借机拍了一个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "同成色二手行情 7500-8500"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "二手残值稳定"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "8000",
+            "value": 8000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "确认应急金后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ],
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "应急金是扣减项。它没确认时，可动用存量就是未知；系统宁可说「先去确认」，也不拿 3 万现金当 3 万可花。"
+    },
+    {
+      "id": "A1",
+      "name": "替代方案是订阅但没写周期：不给 SWITCH",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某 AI 会员",
+          "price": 150,
+          "period": "month",
+          "category": "会员/订阅"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每周要用四五个小时"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "同档订阅普遍这个价"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "有更便宜的同类"
+          }
+        ],
+        "alternative": {
+          "name": "另一家会员",
+          "price": 99,
+          "source": "官网 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "150",
+            "value": 150,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "确认替代品计费周期后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_PERIOD_MISSING",
+        "ALT_PRICE_UNVERIFIED"
+      ],
+      "why": "没写周期的订阅，年化可能是 99 也可能是 1188，不能拿来比较。"
+    },
+    {
+      "id": "A2",
+      "name": "替代品外币价有新鲜汇率：换算后可以给 SWITCH",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "海外版同型号便宜两百"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "国行溢价明显"
+          }
+        ],
+        "alternative": {
+          "name": "同型号海外版",
+          "price": 100,
+          "currency": "USD",
+          "source": "官网 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "100",
+            "value": 100,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28",
+            "currency": "USD",
+            "subject": "alternative"
+          },
+          {
+            "kind": "fx",
+            "claim": "USD/CNY 7.10",
+            "value": 7.1,
+            "base": "USD",
+            "quote": "CNY",
+            "source_type": "official",
+            "url": "https://example.com/fx",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "SWITCH",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_price": 710.0,
+      "why": "反向对照：替代品必须能合格地给出 SWITCH，否则这套规则就成了「一律暂缓」。"
+    },
+    {
+      "id": "A3",
+      "name": "替代品外币价没有汇率：不给 SWITCH",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "海外版同型号便宜两百"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "国行溢价明显"
+          }
+        ],
+        "alternative": {
+          "name": "同型号海外版",
+          "price": 100,
+          "currency": "USD",
+          "source": "官网 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "查到有效汇率后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_PRICE_UNCONVERTED"
+      ],
+      "why": "把 100 美元当成 100 元比较，会得出「便宜 800」的错误结论——这是最危险的一种错。"
+    },
+    {
+      "id": "P30",
+      "name": "超自设上限但有买得起的替代：给替换方案而不是否决",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.hard_cap_single": 3000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌人体工学椅",
+          "price": 3500,
+          "category": "家具/椅子"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天坐八小时，腰疼两个月"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "腰部支撑是主因，腰靠能覆盖"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "同规格国产 1200-1600"
+          }
+        ],
+        "alternative": {
+          "name": "记忆棉腰靠 + 坐垫",
+          "price": 180,
+          "source": "某平台自营 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "3500",
+            "value": 3500,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "180",
+            "value": 180,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28",
+            "subject": "alternative"
+          }
+        ]
+      },
+      "expect_verdict": "SWITCH",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "BUDGET_BREACH"
+      ],
+      "why": "只被钱挡住时，买得起的替代方案就是更好的答案；「不建议购买」把人留在原地，「建议替换方案」给出了下一步。"
+    },
+    {
+      "id": "P31",
+      "name": "需跨月但有买得起的替代：同样给替换方案",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 4000,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "同型号上代便宜很多"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "上代同功能便宜三千"
+          }
+        ],
+        "alternative": {
+          "name": "同型号上代",
+          "price": 900,
+          "source": "某平台自营 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "4000",
+            "value": 4000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28",
+            "subject": "alternative"
+          }
+        ]
+      },
+      "expect_verdict": "SWITCH",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "BUDGET_TIGHT"
+      ],
+      "why": "跨月本身不是否决理由；换一个现在就拿得出的，问题就解决了。"
+    },
+    {
+      "id": "P32",
+      "name": "已有同类 + 合格替代：仍然是不建议购买",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "DUP_OWNED",
+            "note": "家里已有一副同款在用，功能正常"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "没必要买第二副"
+          }
+        ],
+        "alternative": {
+          "name": "不需要买",
+          "price": 1,
+          "source": "—"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "1",
+            "value": 1,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28",
+            "subject": "alternative"
+          }
+        ]
+      },
+      "expect_verdict": "DONT_BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "只有「钱」能让位给替换方案；重复持有、诈骗、违反硬约束不让位。"
     }
   ]
 }

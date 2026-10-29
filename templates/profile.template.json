@@ -2,9 +2,9 @@
   "schema_version": 2,
   "_howto": [
     "这是结构模板，全部是空值。复制到 ~/.maibumai/profile.json 手填，",
-    "或者直接用 `python scripts/mbm.py profile set 键=值` 逐项写入（推荐）。",
+    "或者用 `python scripts/mbm.py profile set 键=值` 逐项写入（推荐，会自动标为已确认）。",
+    "有历史快照时用 `python scripts/mbm.py seed --input 候选稿.json`，写入的值是待确认状态。",
     "查看还缺什么：`python scripts/mbm.py profile gaps`。",
-    "填完不需要手动改 updated_at，命令会自动记当天日期。",
     "本文件只放模板，任何真实数字都不要提交到仓库。"
   ],
   "created_at": null,
@@ -17,117 +17,212 @@
     "finance.monthly_income": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "每月固定进账大概多少？（生活费 + 兼职 + 奖学金，按月均算）"
     },
     "finance.monthly_fixed_expense": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "每月固定支出大概多少？（吃住行话费，不含可选消费）"
     },
     "invest.monthly_contribution": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "每月投到投资里的钱大概多少？"
     },
     "finance.savings_target_monthly": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "每月打算存下多少？"
     },
     "finance.hard_cap_single": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "有没有一条单笔绝对不越过的金额线？没有就说没有"
     },
     "finance.emergency_fund": {
       "value": null,
       "updated_at": "",
-      "note": "应急金现在有多少？（随时能取出来的部分）"
+      "source": "",
+      "confirmed": false,
+      "note": "应急金现在有多少？（随时能取、但不该拿去买东西的那部分）"
+    },
+    "finance.liquid_cash": {
+      "value": null,
+      "updated_at": "",
+      "source": "",
+      "confirmed": false,
+      "note": "手上随时能动的钱一共多少？（活期 + 货基 + 余额宝，不含投资持仓）"
+    },
+    "finance.near_term_obligations": {
+      "value": null,
+      "updated_at": "",
+      "source": "",
+      "confirmed": false,
+      "note": "未来半年已经定下来的必要支出大概多少？（学费、房租、还款、押金）"
+    },
+    "finance.spendable_override": {
+      "value": null,
+      "updated_at": "",
+      "source": "",
+      "confirmed": false,
+      "note": "（可选）想直接指定『我最多能拿出多少买东西』吗？留空则自动推算"
     },
     "invest.capital": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "目前可投资本金大概多少？（不含应急金）"
     },
     "goal.name": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "现在最主要的一个攒钱目标是什么？"
     },
     "goal.monthly": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "每月为这个目标存多少？"
     },
     "life.stage": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "现在的身份或阶段？（在读 / 工作 / 其他）"
     },
     "life.living": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "居住环境？（宿舍 / 合租 / 独居；有无厨房、空间大小、能否改造）"
     },
     "pref.price_sensitivity": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "你对价格敏感吗？（高 / 中 / 低）"
     },
     "pref.quality_vs_price": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "同等条件下更看重质量还是价格？（质量优先 / 均衡 / 价格优先）"
     },
     "pref.used_ok": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "二手可以接受吗？（是 / 否）"
     },
     "invest.expected_annual_return": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "给投资设定的长期年化预期是多少？只用于机会成本演示，可以留空"
     },
     "invest.plan": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "一句话说下你的投资思路？"
     },
     "goal.target": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "这个目标一共要多少钱？"
     },
     "life.city": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "常住城市？"
     },
     "pref.durability_weight": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "耐用性对你重要吗？（高 / 中 / 低）"
     },
     "pref.convenience_weight": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "便利性对你重要吗？（高 / 中 / 低）"
     },
     "interests.list": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "长期在投入的兴趣或领域有哪些？几个词就行"
     },
     "finance.single_purchase_threshold": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "单笔超过多少你会觉得需要认真想想？"
     },
     "finance.discretionary_override": {
       "value": null,
       "updated_at": "",
+      "source": "",
+      "confirmed": false,
       "note": "（可选）想直接指定每月可自由支配金额吗？留空则自动推算"
+    },
+    "finance.net_worth": {
+      "value": null,
+      "updated_at": "",
+      "source": "",
+      "confirmed": false,
+      "note": "净资产大概多少？（现金 + 投资 + 应收 − 负债）"
+    },
+    "finance.receivable": {
+      "value": null,
+      "updated_at": "",
+      "source": "",
+      "confirmed": false,
+      "note": "有多少钱是别人欠你的、但还没到手？"
+    },
+    "finance.liabilities": {
+      "value": null,
+      "updated_at": "",
+      "source": "",
+      "confirmed": false,
+      "note": "目前有多少负债？（花呗、分期、借款）"
+    },
+    "invest.exposure_note": {
+      "value": null,
+      "updated_at": "",
+      "source": "",
+      "confirmed": false,
+      "note": "投资大致分布？一句话就行（例如：纳指、A股、少量加密）"
     }
   },
   "constraints": {

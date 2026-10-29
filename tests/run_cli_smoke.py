@@ -111,10 +111,14 @@ def main() -> int:
         ctx.json("profile", "set",
                  "finance.monthly_income=2500",
                  "finance.monthly_fixed_expense=1200",
+                 "finance.savings_target_monthly=0",
                  "invest.monthly_contribution=300")
         brief = ctx.json("brief")
-        ctx.check("月可支配按收入减支出减投资推算", brief["discretionary"] == 1000, brief["discretionary"])
-        ctx.check("摘要含『月可支配』", "月可支配" in brief["brief"], brief["brief"][:200])
+        ctx.check("月可支配按收入减支出减储蓄减投资推算", brief["discretionary"] == 1000, brief["discretionary"])
+        ctx.check("存量未填时标注为未知", "⑤ 可自由消费资金：未知" in brief["brief"], brief["brief"][:500])
+        ctx.check("摘要按存量/现金流六层展开",
+                  "净资产" in brief["brief"] and "月结余" in brief["brief"],
+                  brief["brief"][:400])
 
         gaps = ctx.json("profile", "gaps", "--limit", "3")
         ctx.check("能列出待补画像字段", len(gaps) == 3 and "question" in gaps[0], gaps)
@@ -170,6 +174,31 @@ def main() -> int:
         ctx.json("export", "--out", str(md))
         text = md.read_text(encoding="utf-8")
         ctx.check("导出含两笔记录", "WH-1000XM5" in text and "专业相机" in text, text[:300])
+
+        # 存量层：月结余只有 1000，但可动用存量足以覆盖 8000
+        ctx.json("profile", "set",
+                 "finance.liquid_cash=30000",
+                 "finance.emergency_fund=6000",
+                 "finance.near_term_obligations=8000")
+        big = {
+            "product": {"name": "二手相机 + 镜头", "price": 8000, "category": "数码/相机"},
+            "reasons": [
+                {"code": "NEED_REAL", "note": "已经借机拍了一个月，每周都出去拍"},
+                {"code": "PRICE_FAIR", "note": "同成色二手行情 7500-8500"},
+                {"code": "LOW_REGRET_RISK", "note": "二手残值稳定，随时能转手"},
+            ],
+            "evidence": [{"kind": "price", "claim": "8000", "value": 8000,
+                          "source_type": "third_party", "url": "https://example.com/big",
+                          "observed_at": TODAY}],
+            "prediction": {"uses_per_month": 3, "months": 36},
+        }
+        big_path = ctx.write("big.json", big)
+        big_res = ctx.json("judge", "--input", big_path)
+        ctx.check("可动用存量覆盖时不被月收入否决",
+                  big_res["result"]["verdict"]["verdict"] == "BUY", big_res["result"]["verdict"])
+        ctx.check("可动用存量按现金减应急金减近期支出",
+                  big_res["result"]["numbers"]["financial"]["spendable"] == 16000,
+                  big_res["result"]["numbers"]["financial"])
 
         doc = ctx.json("doctor")
         ctx.check("数据目录不在 Git 仓库内", not doc["git_roots"], doc)

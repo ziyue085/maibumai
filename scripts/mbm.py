@@ -35,6 +35,11 @@ except Exception:  # pragma: no cover
     pass
 
 
+#: 这些码由引擎判定，外部传入一律丢弃——否则模型可以自己"宣布"预算结论，
+#: 也可以把自己的理由标成 enforced 来躲开理由数量与依据检查。
+ENGINE_CODES = {"BUDGET_BREACH", "BUDGET_TIGHT", "AFFORDABLE_WITHIN_BUDGET", "CONSTRAINT_VIOLATION"}
+
+
 def _out(data, human: bool = False, human_fn=None) -> int:
     if human and human_fn:
         print(human_fn(data))
@@ -61,7 +66,9 @@ def _load_input(path: str | None) -> dict:
 
 
 def _append_findings(result: dict, findings) -> None:
-    result["findings"] = list(result.get("findings") or []) + list(findings)
+    existing = {f["code"] for f in result.get("findings") or []}
+    incoming = [f for f in findings if f["code"] not in existing]
+    result["findings"] = list(result.get("findings") or []) + incoming
     result["blocking"] = sum(1 for f in result["findings"] if f["severity"] == "BLOCK")
     result["warnings"] = sum(1 for f in result["findings"] if f["severity"] == "WARN")
     result["ok"] = result["blocking"] == 0
@@ -70,13 +77,14 @@ def _append_findings(result: dict, findings) -> None:
 # ---------------------------------------------------------------------------
 # 判定核心
 # ---------------------------------------------------------------------------
-def _evaluate(draft: dict, profile: dict) -> dict:
+def _evaluate(draft: dict, profile: dict, owned=None) -> dict:
     base = (profile.get("meta") or {}).get("base_currency") or "CNY"
+    as_of = draft.get("as_of")
     raw_product = dict(draft.get("product") or {})
     raw_items = list(draft.get("evidence") or [])
 
-    # 1) 币种归一：所有金额统一到 base，换不出来的直接阻断
-    items, product, currency_findings = ev.to_base(raw_items, base, raw_product)
+    # 1) 币种归一：所有金额统一到 base；汇率必须新，换不出来就阻断
+    items, product, currency_findings = ev.to_base(raw_items, base, raw_product, as_of=as_of)
 
     price = product.get("price")
     prediction = draft.get("prediction") or {}
@@ -94,47 +102,39 @@ def _evaluate(draft: dict, profile: dict) -> dict:
             level_source = "downgrade_attempt"  # 保持 computed，audit 会报
     draft["level"] = level
 
-    # 3) 财务与约束：由画像 + 价格强制推导，不依赖模型自觉
-    reasons = [dict(r) if isinstance(r, dict) else {"code": str(r)} for r in (draft.get("reasons") or [])]
-    own_codes = {r.get("code") for r in reasons}
-    enforced_codes, financial = [], []
+    # 3) 外部理由：清掉 enforced 标记，丢掉引擎管辖的码
+    #    否则模型可以自己"宣布"预算结论，或把自己的理由标成 enforced 躲开检查
+    reasons = []
+    for raw in draft.get("reasons") or []:
+        item = raw if isinstance(raw, dict) else {"code": str(raw)}
+        code = item.get("code")
+        if not code or code in ENGINE_CODES:
+            continue
+        reasons.append({"code": code, "note": item.get("note") or ""})
+    own_codes = {r["code"] for r in reasons}
 
-    fin = calc.budget_status(price, profile)
-    if fin["status"] == "breach":
-        enforced_codes.append("BUDGET_BREACH")
-        # 这不是模型的错误，是事实：只强制结论，不阻断落账
-        financial.append({
-            "code": "BUDGET_BREACH", "severity": "INFO", "gate": "financial",
-            "message": fin["detail"] + "：超出承受能力，结论已被强制为不建议购买",
-            "detail": fin,
-        })
+    # 4) 财务与约束：由画像 + 价格强制推导
+    #    订阅按"年化总额"做承受力判断，但月现金流只吃每月摊额——
+    #    月付 200 的订阅，不能拿 2400 去和月结余比，也不能只拿 200 去看总负担。
+    budget_price, monthly_equiv = price, None
+    if computed["kind"] == "subscription" and isinstance(price, (int, float)):
+        pm = calc.period_months(period)
+        if pm:
+            budget_price = price * 12 / pm
+            monthly_equiv = price / pm
+    fin = calc.budget_status(budget_price, profile, monthly_equiv=monthly_equiv)
+    snap = fin.get("snapshot") or {}
+    enforced_codes = []
+    if fin["status"] in ("ok", "ok_stock"):
+        enforced_codes.append("AFFORDABLE_WITHIN_BUDGET")
     elif fin["status"] == "tight":
         enforced_codes.append("BUDGET_TIGHT")
-        financial.append({
-            "code": "BUDGET_TIGHT", "severity": "WARN", "gate": "financial",
-            "message": fin["detail"] + "：需跨月支出，结论已被强制为暂缓",
-            "detail": fin,
-        })
-    elif fin["status"] == "ok":
-        enforced_codes.append("AFFORDABLE_WITHIN_BUDGET")
-    else:
-        severe = level == "L3" and isinstance(price, (int, float)) and price > 0
-        financial.append({
-            "code": "FIN_BUDGET_UNKNOWN", "severity": "BLOCK" if severe else "WARN",
-            "gate": "financial",
-            "message": "还没填收入与固定支出，无法判断这笔是否在承受范围内" + (
-                "；这是重决策，必须先补上" if severe else ""),
-            "detail": fin,
-        })
+    elif fin["status"] == "breach":
+        enforced_codes.append("BUDGET_BREACH")
 
     violations = calc.constraint_violations(profile, product)
     if violations:
         enforced_codes.append("CONSTRAINT_VIOLATION")
-        financial.append({
-            "code": "CONSTRAINT_VIOLATION", "severity": "INFO", "gate": "financial",
-            "message": "；".join(v["detail"] for v in violations),
-            "detail": {"violations": violations},
-        })
 
     for code in enforced_codes:
         if code in own_codes:
@@ -145,15 +145,71 @@ def _evaluate(draft: dict, profile: dict) -> dict:
             "enforced": True,
         })
 
-    # 4) 结论
+    # 5) 结论
     resolved = vd.resolve(reasons, draft.get("alternative"), draft.get("override"))
-    needs_price = resolved["verdict"] in ("BUY", "SWITCH")
+    verdict = resolved["verdict"]
+    needs_price = verdict in ("BUY", "SWITCH")
 
+    # 6) 财务门的发现（严重度取决于等级与结论，所以要等结论出来再定）
+    financial = []
+    if fin["status"] == "breach":
+        tail = {"hard_cap": "触及你自设的单笔上限", "capacity": "存量加结余也覆盖不了"}.get(
+            fin.get("reason"), "超出承受能力")
+        financial.append({
+            "code": "BUDGET_BREACH", "severity": "INFO", "gate": "financial",
+            "message": f"{fin['detail']}（{tail}），结论已被强制为不建议购买",
+            "detail": fin,
+        })
+    elif fin["status"] == "tight":
+        financial.append({
+            "code": "BUDGET_TIGHT", "severity": "WARN", "gate": "financial",
+            "message": f"{fin['detail']}：需动用存量或跨月，结论已被强制为暂缓",
+            "detail": fin,
+        })
+    elif fin["status"] == "ok_stock" and fin.get("heavy"):
+        financial.append({
+            "code": "FIN_RESERVE_HEAVY", "severity": "WARN", "gate": "financial",
+            "message": fin["detail"] + "，一次用掉超过一半的可动用存量",
+            "detail": fin,
+        })
+    elif fin["status"] == "unknown":
+        severe = level == "L3" and isinstance(price, (int, float)) and price > 0
+        hint = ""
+        if snap.get("unconfirmed_fields"):
+            hint = "；你有历史记录但还没确认：" + "、".join(snap["unconfirmed_fields"])
+        elif snap.get("missing_fields"):
+            hint = "；还缺：" + "、".join(snap["missing_fields"])
+        financial.append({
+            "code": "FIN_BUDGET_UNKNOWN", "severity": "BLOCK" if severe else "WARN",
+            "gate": "financial",
+            "message": "收入/支出/存量都不足以判断承受力" + hint + (
+                "。这是重决策，先确认再判断" if severe else ""),
+            "detail": fin,
+        })
+
+    if snap.get("stale_fields"):
+        financial.append({
+            "code": "FIN_PROFILE_STALE", "severity": "WARN", "gate": "financial",
+            "message": "这些财务数据已过期，未参与本次计算，需要先确认：" + "、".join(snap["stale_fields"]),
+            "detail": {"stale": snap["stale_fields"]},
+        })
+
+    if snap.get("surplus_estimated"):
+        severe_est = level == "L3" and verdict == "BUY"
+        financial.append({
+            "code": "FIN_SURPLUS_ESTIMATED", "severity": "BLOCK" if severe_est else "WARN",
+            "gate": "financial",
+            "message": "储蓄目标或每月投资额还没填，可支配余额被高估"
+                      + ("；大额购买前必须先确认" if severe_est else ""),
+            "detail": {"surplus": snap.get("monthly_surplus")},
+        })
+
+    # 7) 证据校验：L1 不要求价格证据，否则快判通道形同虚设
     ev_result = ev.check(
         items,
-        as_of=draft.get("as_of"),
+        as_of=as_of,
         price_class=calc.price_class(product.get("category")),
-        required_kinds=("price",) if needs_price else (),
+        required_kinds=("price",) if (needs_price and level != "L1") else (),
     )
     if currency_findings:
         _append_findings(ev_result, currency_findings)
@@ -171,13 +227,54 @@ def _evaluate(draft: dict, profile: dict) -> dict:
         kind=computed["kind"],
         period=period,
     )
+    if owned is not None:
+        resources = store.resource_overview(owned)
+        numbers["resources"] = {
+            "similar": store.similar_resources(product, owned),
+            "active_count": resources["active_count"],
+            "monthly_subscription_total": resources["monthly_subscription_total"],
+        }
 
-    # 5) 一致性审计：只看模型自己给的理由，引擎注入的只参与一致性判断
+    numbers["financial"] = {
+        "monthly_surplus": snap.get("monthly_surplus"),
+        "surplus_estimated": snap.get("surplus_estimated"),
+        "spendable": snap.get("spendable"),
+        "spendable_note": snap.get("spendable_note"),
+        "hard_cap": snap.get("hard_cap"),
+        "stale_fields": snap.get("stale_fields"),
+    }
+
+    # 8) 替代品也要过预算、周期、证据三关，不能"换个更买不起的"
+    alt_raw = draft.get("alternative")
+    if isinstance(alt_raw, dict) and str(alt_raw.get("name") or "").strip():
+        alt_price = alt_raw.get("price")
+        alt_kind = calc.classify_category(alt_raw.get("category") or product.get("category"))
+        alt_period = alt_raw.get("period")
+        alt_budget = None
+        if isinstance(alt_price, (int, float)) and alt_price > 0:
+            alt_budget_price, alt_monthly = alt_price, None
+            if alt_kind == "subscription":
+                apm = calc.period_months(alt_period)
+                if apm:
+                    alt_budget_price = alt_price * 12 / apm
+                    alt_monthly = alt_price / apm
+            ab = calc.budget_status(alt_budget_price, profile, monthly_equiv=alt_monthly)
+            alt_budget = {"status": ab["status"], "code": ab["code"], "detail": ab["detail"]}
+        numbers["alternative"] = {
+            "price": alt_price if isinstance(alt_price, (int, float)) else None,
+            "kind": alt_kind,
+            "budget": alt_budget,
+            "annual_cost": calc.annual_of(alt_price, alt_period)
+            if (alt_kind == "subscription" and isinstance(alt_price, (int, float))) else None,
+            "period_missing": alt_kind == "subscription" and calc.period_months(alt_period) is None,
+        }
+
+    # 9) 一致性审计：只看模型自己给的理由，引擎注入的只参与一致性判断
     own_reasons = [r for r in reasons if not r.get("enforced")]
     enforced_only = [r["code"] for r in reasons if r.get("enforced")]
     audit_input = {
         **draft,
-        "verdict": resolved["verdict"],
+        "verdict": verdict,
         "level": level,
         "product": product,
         "evidence": items,
@@ -193,7 +290,7 @@ def _evaluate(draft: dict, profile: dict) -> dict:
         declared_level=given,
     )
 
-    # 6) 两道门分开报告
+    # 10) 三道门分开报告
     gates = {
         "financial": {
             "ok": not any(f["severity"] == "BLOCK" for f in financial),
@@ -391,6 +488,21 @@ def cmd_profile(args) -> int:
     return _out({"error": "未知操作"}, args.human)
 
 
+def cmd_seed(args) -> int:
+    """用一份候选稿初始化画像。默认写入的都是"待确认"，不直接参与计算。"""
+    payload = _load_input(args.input)
+    entries = payload.get("facts") if isinstance(payload.get("facts"), dict) else payload
+    result = store.seed_facts(entries, force=args.force)
+    profile = store.load_profile()
+    return _out(
+        {**result, "brief": store.brief(profile), "gaps": store.gaps(profile, limit=6)},
+        args.human,
+        lambda d: "已写入：" + ("、".join(d["written"]) or "无")
+        + ("\n跳过：" + "、".join(f"{s['key']}({s['reason']})" for s in d["skipped"]) if d["skipped"] else "")
+        + "\n\n" + d["brief"],
+    )
+
+
 def cmd_owned(args) -> int:
     if args.action == "add":
         item = {
@@ -400,6 +512,9 @@ def cmd_owned(args) -> int:
             "acquired": args.acquired,
             "price": args.price,
             "notes": args.notes or "",
+            "monthly_cost": args.monthly_cost,
+            "status": args.status,
+            "vendor": args.vendor or "",
         }
         return _out(store.add_owned(item), args.human, lambda d: f"已登记：{d['name']}（{d['condition']}）")
     if args.action == "list":
@@ -426,7 +541,7 @@ def cmd_owned(args) -> int:
 
 def cmd_check(args) -> int:
     draft = _load_input(args.input)
-    result = _evaluate(draft, store.load_profile())
+    result = _evaluate(draft, store.load_profile(), store.load_owned()["items"])
     return _out(result, args.human, _human_check)
 
 
@@ -434,7 +549,7 @@ def cmd_judge(args) -> int:
     """判定并落账：能过就写账本，过不了就只返回问题。"""
     draft = _load_input(args.input)
     profile = store.load_profile()
-    result = _evaluate(draft, profile)
+    result = _evaluate(draft, profile, store.load_owned()["items"])
     if not result["ok"]:
         print(json.dumps(
             {"ok": False, "logged": False, "refused": True, "result": result},
@@ -466,7 +581,7 @@ def cmd_judge(args) -> int:
 
 def cmd_log(args) -> int:
     draft = _load_input(args.input)
-    result = _evaluate(draft, store.load_profile())
+    result = _evaluate(draft, store.load_profile(), store.load_owned()["items"])
     if not result["ok"] and not args.force:
         print(json.dumps({"ok": False, "refused": True, "result": result}, ensure_ascii=False, indent=2))
         return 2
@@ -561,12 +676,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("brief", parents=[common]).set_defaults(func=cmd_brief)
 
     pr = sub.add_parser("profile", parents=[common])
-    pr.add_argument("action", choices=["show", "brief", "gaps", "set", "confirm", "constraints"])
+    pr.add_argument("action", choices=["show", "brief", "gaps", "set", "confirm", "constraints", "seed"])
     pr.add_argument("pairs", nargs="*", help="key=value，或 constraints 的开关")
     pr.add_argument("--key", help="confirm 用")
     pr.add_argument("--limit", type=int, default=3)
     pr.add_argument("--priority", type=int, default=3)
     pr.set_defaults(func=cmd_profile)
+
+    sd = sub.add_parser("seed", parents=[common], help="用候选稿初始化画像（默认待确认）")
+    sd.add_argument("--input", required=True)
+    sd.add_argument("--force", action="store_true", help="覆盖已确认的值")
+    sd.set_defaults(func=cmd_seed)
 
     ow = sub.add_parser("owned", parents=[common])
     ow.add_argument("action", choices=["add", "list", "find", "set"])
@@ -576,6 +696,9 @@ def build_parser() -> argparse.ArgumentParser:
     ow.add_argument("--acquired")
     ow.add_argument("--price", type=float)
     ow.add_argument("--notes")
+    ow.add_argument("--monthly-cost", type=float, help="服务类每月成本")
+    ow.add_argument("--status", default="active", choices=["active", "paused", "expired"])
+    ow.add_argument("--vendor")
     ow.add_argument("--query")
     ow.add_argument("--id")
     ow.set_defaults(func=cmd_owned)

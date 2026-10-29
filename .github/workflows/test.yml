@@ -1,0 +1,46 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 仓库自检（个人数据 / JSON / 编译 / 版本号）
+        run: python tests/check_repo.py
+
+      - name: 规则回归（117 条夹具）
+        run: python tests/run_regression.py -v
+
+      - name: 变异测试（23 个变异必须全部被捕获）
+        run: python tests/mutation_check.py
+
+      - name: 端到端冒烟（26 步）
+        run: python tests/run_cli_smoke.py
+
+      - name: 引擎自检
+        env:
+          MAIBUMAI_HOME: ${{ runner.temp }}/mbm-home
+        run: |
+          python scripts/mbm.py init
+          python scripts/mbm.py doctor
+          python scripts/mbm.py brief --human

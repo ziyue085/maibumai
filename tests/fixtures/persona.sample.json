@@ -9,102 +9,142 @@
     "finance.monthly_income": {
       "value": 2600,
       "updated_at": "2026-10-29",
-      "note": "生活费+兼职月均"
+      "note": "生活费+兼职月均",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "finance.monthly_fixed_expense": {
       "value": 1100,
       "updated_at": "2026-10-29",
-      "note": "吃住行话费"
+      "note": "吃住行话费",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "finance.savings_target_monthly": {
       "value": 300,
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "invest.monthly_contribution": {
       "value": 400,
       "updated_at": "2026-10-29",
-      "note": "定投"
+      "note": "定投",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "finance.emergency_fund": {
       "value": 6000,
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "finance.hard_cap_single": {
       "value": 3000,
       "updated_at": "2026-10-29",
-      "note": "单笔不越过"
+      "note": "单笔不越过",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "invest.capital": {
       "value": 30000,
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "invest.expected_annual_return": {
       "value": 8,
       "updated_at": "2026-10-29",
-      "note": "长期指数定投预期"
+      "note": "长期指数定投预期",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "invest.plan": {
       "value": "宽基指数定投，不做短线",
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "goal.name": {
       "value": "换相机",
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "goal.monthly": {
       "value": 300,
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "goal.target": {
       "value": 8000,
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "life.stage": {
       "value": "本科在读",
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "life.living": {
       "value": "宿舍，空间小，不能用大功率电器",
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "life.city": {
       "value": "淄博",
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "pref.price_sensitivity": {
       "value": "中",
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "pref.quality_vs_price": {
       "value": "均衡",
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "pref.durability_weight": {
       "value": "高",
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "pref.convenience_weight": {
       "value": "中",
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "pref.used_ok": {
       "value": true,
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     },
     "interests.list": {
       "value": [
@@ -113,7 +153,9 @@
         "摄影"
       ],
       "updated_at": "2026-10-29",
-      "note": ""
+      "note": "",
+      "confirmed": true,
+      "source": "虚构示例"
     }
   },
   "constraints": {

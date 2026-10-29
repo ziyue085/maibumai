@@ -82,9 +82,15 @@ def _positive_number(value):
 # ---------------------------------------------------------------------------
 # 币种
 # ---------------------------------------------------------------------------
-def fx_rates(items, base: str) -> dict:
-    """从证据里读出可用汇率。只认 (from, to) 单向与反向倒数。"""
+def fx_rates(items, base: str, as_of=None) -> dict:
+    """从证据里读出**仍在有效期内**的汇率。
+
+    汇率是时效性最强的数据：三个月前的 7.1 和今天的 7.1 是两回事。
+    所以这里同时过滤三件事：日期可解析、不在未来、未超过 3 天保鲜期。
+    """
     base = (base or "CNY").upper()
+    ref = _parse_date(as_of) or _dt.date.today()
+    limit = STALE_DAYS["fx"]
     rates = {}
     for item in items or []:
         if item.get("kind") != "fx":
@@ -92,12 +98,18 @@ def fx_rates(items, base: str) -> dict:
         src = str(item.get("base") or "").upper()
         dst = str(item.get("quote") or "").upper()
         value = item.get("value")
-        if src and dst and _positive_number(value):
-            rates[(src, dst)] = float(value)
+        if not (src and dst and _positive_number(value)):
+            continue
+        when = _parse_date(item.get("observed_at"))
+        if when is None or when > ref:
+            continue
+        if (ref - when).days > limit:
+            continue
+        rates[(src, dst)] = float(value)
     return rates
 
 
-def convert_amount(value, currency, base, items):
+def convert_amount(value, currency, base, items, as_of=None):
     """把金额换算到 base 币种。无法换算返回 None——不猜汇率。"""
     base = (base or "CNY").upper()
     cur = (currency or base).upper()
@@ -105,7 +117,7 @@ def convert_amount(value, currency, base, items):
         return None
     if cur == base:
         return float(value)
-    rates = fx_rates(items, base)
+    rates = fx_rates(items, base, as_of)
     if (cur, base) in rates:
         return round(float(value) * rates[(cur, base)], 2)
     if (base, cur) in rates and rates[(base, cur)] > 0:
@@ -113,16 +125,17 @@ def convert_amount(value, currency, base, items):
     return None
 
 
-def to_base(items, base="CNY", product=None):
+def to_base(items, base="CNY", product=None, as_of=None):
     """把所有价格类证据换算到 base 币种，并换算商品价。
 
     返回 (归一后的 items, 归一后的 product, findings)。
-    换算不出来的，value 置 None 并给 BLOCK——宁可判不了，也不能拿错币种的数字比较。
+    换算不出来的，value 置 None 并给 BLOCK——宁可判不了，也不能拿错币种、
+    或者拿三个月前的汇率去比较今天的价格。
     """
     base = (base or "CNY").upper()
     items = [dict(i) for i in (items or [])]
     findings = []
-    rates = fx_rates(items, base)
+    rates = fx_rates(items, base, as_of)
     seen_missing = set()
 
     for idx, item in enumerate(items):
@@ -135,7 +148,7 @@ def to_base(items, base="CNY", product=None):
             continue  # 交给 check() 报 EV_PRICE_VALUE_INVALID
         if cur == base:
             continue
-        converted = convert_amount(value, cur, base, items)
+        converted = convert_amount(value, cur, base, items, as_of)
         if converted is None:
             item["original_value"] = value
             item["value"] = None
@@ -146,7 +159,8 @@ def to_base(items, base="CNY", product=None):
                     _finding(
                         "EV_CURRENCY_UNCONVERTED",
                         "BLOCK",
-                        f"价格以 {cur} 计价，但没有可用的 {cur}/{base} 汇率证据，无法与你的预算比较",
+                        f"价格以 {cur} 计价，但没有可用的 {cur}/{base} 汇率证据"
+                        f"（汇率须在 3 天内，且不能晚于校验基准日），无法与你的预算比较",
                         {"index": idx, "currency": cur, "base": base, "rates": sorted(map(str, rates))},
                     )
                 )
@@ -159,7 +173,7 @@ def to_base(items, base="CNY", product=None):
     pcur = str(product.get("currency") or base).upper()
     product["currency"] = pcur
     if _positive_number(price) and pcur != base:
-        converted = convert_amount(price, pcur, base, items)
+        converted = convert_amount(price, pcur, base, items, as_of)
         if converted is None:
             product["original_price"] = price
             product["price"] = None
@@ -168,7 +182,7 @@ def to_base(items, base="CNY", product=None):
                 _finding(
                     "EV_CURRENCY_UNCONVERTED",
                     "BLOCK",
-                    f"商品价 {price} 以 {pcur} 计价，缺少汇率证据，无法判断是否在你的预算内",
+                    f"商品价 {price} 以 {pcur} 计价，缺少有效汇率证据，无法判断是否在你的预算内",
                     {"price": price, "currency": pcur, "base": base},
                 )
             )

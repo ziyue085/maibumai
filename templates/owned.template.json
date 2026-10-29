@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
   "_howto": [
-    "已有物品模板。condition 决定『是否算重复购买』：",
-    "good / worn 才算还能用；failing / broken 反而支持替换。",
-    "日常用 `python scripts/mbm.py owned add --name ... --condition ...` 登记。"
+    "已有物品/服务模板。condition 决定『是否算重复购买』：good / worn 才算还能用。",
+    "服务类请填 monthly_cost 与 status（active / paused / expired），引擎会把在用订阅月费合计。",
+    "日常用 `python scripts/mbm.py owned add --name ... --monthly-cost 60` 登记。"
   ],
   "updated_at": null,
   "items": [
@@ -15,17 +15,23 @@
       "price": 1299,
       "condition": "good",
       "satisfaction": 4,
-      "notes": "通勤主力，功能正常"
+      "notes": "通勤主力，功能正常",
+      "monthly_cost": null,
+      "status": "active",
+      "vendor": ""
     },
     {
       "id": "own-example2",
-      "name": "（示例）笔记本电脑",
-      "category": "数码/电脑",
+      "name": "（示例）云服务器",
+      "category": "云服务/服务器",
       "acquired": "2024-03",
-      "price": 5499,
-      "condition": "worn",
-      "satisfaction": 3,
-      "notes": "电池衰减到 60%，其他正常"
+      "price": null,
+      "condition": "good",
+      "satisfaction": 4,
+      "notes": "跑个人项目；续费价待确认",
+      "monthly_cost": 60,
+      "status": "active",
+      "vendor": "某云厂商"
     }
   ]
 }

@@ -99,6 +99,12 @@ VAGUE_PHRASES = (
 
 SUPERLATIVES = ("历史最低", "史上最低", "全网最低", "最低价", "最便宜", "破价", "史低")
 
+#: L1（≤100 元）不要求价格证据：为 30 元的东西要求一条带链接的报价，等于堵死快判通道。
+L1_EXEMPT_EVIDENCE = True
+
+#: 引擎已用硬约束否决时，放宽"必须给够理由"。结论已经定了，再要三条理由只会让记录写不进去。
+ENFORCED_WAIVES_REASON_COUNT = True
+
 
 def _reason_items(reasons) -> list:
     """统一成内部结构。``enforced`` 必须保留——它是"这条是引擎判的"的唯一标记，
@@ -253,6 +259,14 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
         )
 
     minimum = MIN_REASONS.get(level, 3)
+    # 否决类结论只需要一条站得住的硬理由：结论已经被硬约束定死了，
+    # 再要求凑三条只会让记录写不进去（引擎判的和模型判的都一样）。
+    hard_enforced = bool(ENFORCED_WAIVES_REASON_COUNT) and (
+        verdict == "DONT_BUY"
+        or any(RULE_TIER.get(c) == "DONT_BUY" for c in enforced_codes)
+    )
+    if hard_enforced:
+        minimum = min(minimum, 1)
     own_known = {c for c in own_codes if c in RULE_TIER}
     if len(own_known) < minimum:
         findings.append(
@@ -331,6 +345,38 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
                 findings.append(
                     _finding("AUD_ALT_NO_SOURCE", "BLOCK", "替代方案没有来源：无法核实是否真的存在")
                 )
+            # 替代品也要过同一套预算与证据检查——否则"换方案"可能换成更买不起的
+            alt_info = (decision.get("numbers") or {}).get("alternative") or {}
+            if (alt_info.get("budget") or {}).get("status") == "breach":
+                findings.append(
+                    _finding(
+                        "AUD_ALT_OVER_BUDGET", "BLOCK",
+                        "替代方案同样超出你的承受能力，换过去并不能解决问题",
+                        {"budget": alt_info.get("budget")},
+                    )
+                )
+            alt_price = alt.get("price")
+            if isinstance(alt_price, (int, float)) and alt_price > 0:
+                supported = any(
+                    isinstance(e, dict)
+                    and e.get("kind") in ("price", "promo")
+                    and str(e.get("subject") or "target").strip().lower() in ("alternative", "reference")
+                    and isinstance(e.get("value"), (int, float))
+                    and abs(e["value"] - alt_price) / alt_price <= 0.05
+                    for e in evidence
+                )
+                if not supported:
+                    findings.append(
+                        _finding(
+                            "AUD_ALT_UNVERIFIED_PRICE", "WARN",
+                            "替代品的价格没有独立证据支撑，建议补一条带链接的报价",
+                        )
+                    )
+            if alt_info.get("period_missing"):
+                findings.append(
+                    _finding("AUD_ALT_PERIOD_MISSING", "WARN",
+                             "替代品是订阅但没写计费周期，年化成本无法比较")
+                )
 
     if verdict == "DEFER" and not str(decision.get("recheck_condition") or "").strip():
         findings.append(
@@ -341,6 +387,8 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
     kinds = _evidence_kinds(evidence)
     ev = evidence_result or {}
     price = product.get("price")
+    # L1 是"30 块钱的东西不用查证"，不要求价格证据；否则快判通道形同虚设
+    is_l1 = level == "L1" and bool(L1_EXEMPT_EVIDENCE)
     if verdict in ("BUY", "SWITCH"):
         price_items = [
             e for e in evidence
@@ -352,20 +400,21 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
             findings.append(
                 _finding("AUD_BUY_NO_PRICE", "BLOCK", "购买类结论必须知道确切价格")
             )
-        if not price_items:
-            findings.append(_finding("AUD_NO_PRICE_EVIDENCE", "BLOCK", "购买类结论必须附价格证据"))
-        else:
-            best_tier = min(SOURCE_TIERS.get(str(e.get("source_type") or ""), 5) for e in price_items)
-            if best_tier > 3:
+        if not is_l1:
+            if not price_items:
+                findings.append(_finding("AUD_NO_PRICE_EVIDENCE", "BLOCK", "购买类结论必须附价格证据"))
+            else:
+                best_tier = min(SOURCE_TIERS.get(str(e.get("source_type") or ""), 5) for e in price_items)
+                if best_tier > 3:
+                    findings.append(
+                        _finding("AUD_PRICE_UNVERIFIED", "BLOCK",
+                                 "价格只有用户口述或社区来源：不能据此断言「价格合理」，须先查到公开报价")
+                    )
+            if ev and not ev.get("ok", True):
                 findings.append(
-                    _finding("AUD_PRICE_UNVERIFIED", "BLOCK",
-                             "价格只有用户口述或社区来源：不能据此断言「价格合理」，须先查到公开报价")
+                    _finding("AUD_EVIDENCE_BLOCKING", "BLOCK",
+                             f"证据校验未通过（{ev.get('blocking', 0)} 项阻断）")
                 )
-        if ev and not ev.get("ok", True):
-            findings.append(
-                _finding("AUD_EVIDENCE_BLOCKING", "BLOCK",
-                         f"证据校验未通过（{ev.get('blocking', 0)} 项阻断）")
-            )
 
     if isinstance(price, (int, float)) and price > 0 and "price" in kinds:
         ev_prices = [
@@ -400,6 +449,21 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
             findings.append(
                 _finding("AUD_SUBSCRIPTION_PERIOD", "BLOCK",
                          "订阅类必须说明计费周期（month / quarter / year），否则年度成本不可信")
+            )
+
+    # 已有资源：不否决，但不能装作没看见
+    res = (decision.get("numbers") or {}).get("resources") or {}
+    similar = res.get("similar") or []
+    if verdict == "BUY" and similar:
+        addressed = {"DUP_OWNED", "SUBSTITUTE_ADEQUATE", "SUBSTITUTE_INADEQUATE"} & set(codes)
+        if not addressed:
+            names = "、".join(str(s.get("name")) for s in similar[:3])
+            findings.append(
+                _finding(
+                    "AUD_RESOURCE_IGNORED", "WARN",
+                    f"你已经有同类资源（{names}），但结论里没有回应『是否重复』",
+                    {"similar": similar},
+                )
             )
 
     text = " ".join(

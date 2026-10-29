@@ -22,6 +22,8 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 import calc      # noqa: E402
 import evidence  # noqa: E402
+import mbm       # noqa: E402
+import store     # noqa: E402
 import verdict   # noqa: E402
 import run_regression as rr  # noqa: E402
 
@@ -138,6 +140,48 @@ def _m14():
 @mutation("订阅周期一律当作年付")
 def _m15():
     return _set(calc, "period_months", lambda p: 12)
+
+
+# --- 第三轮审核新增：财务口径、分类、信任边界 ---------------------------
+@mutation("过期财务数据照用（跳过时效检查）")
+def _m16():
+    return _set(store, "fact_fresh", store.fact)
+
+
+@mutation("所有财务事实都视为未过期")
+def _m17():
+    return _set(store, "fact_stale", lambda profile, key: False)
+
+
+@mutation("云服务器被判成耐用品（不做年化）")
+def _m18():
+    return _set(calc, "classify_category", lambda category: "durable")
+
+
+@mutation("汇率不再检查时效")
+def _m19():
+    return _item(evidence.STALE_DAYS, "fx", 99999)
+
+
+@mutation("允许外部传入引擎管辖的理由码")
+def _m20():
+    return _set(mbm, "ENGINE_CODES", set())
+
+
+@mutation("取消 L1 免证据")
+def _m21():
+    return _set(verdict, "L1_EXEMPT_EVIDENCE", False)
+
+
+@mutation("取消硬拦截时的理由数量豁免")
+def _m22():
+    return _set(verdict, "ENFORCED_WAIVES_REASON_COUNT", False)
+
+
+@mutation("不检查替代品的预算")
+def _m23():
+    return _set(calc, "budget_status", lambda price, profile, monthly_equiv=None: {
+        "status": "ok", "code": "AFFORDABLE_WITHIN_BUDGET", "detail": "夹具", "snapshot": {}})
 
 
 def main() -> int:

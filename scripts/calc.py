@@ -11,23 +11,43 @@ from __future__ import annotations
 
 import store
 
-CATEGORY_KIND = {
-    "durable": (
-        "数码", "电子", "手机", "电脑", "家电", "家具", "家居", "乐器", "工具",
-        "厨具", "运动器材", "手表", "箱包", "鞋", "服饰", "眼镜", "床", "椅",
-        "服务器", "主机", "显示器", "键盘", "相机",
-    ),
-    "consumable": ("食品", "零食", "日耗", "纸品", "洗护", "美妆", "护肤", "清洁", "文具"),
-    "subscription": (
-        "会员", "订阅", "服务", "云盘", "宽带", "保险", "课程", "API",
-        "云服务", "SaaS", "软件",
-    ),
-    "experience": ("演出", "门票", "旅行", "旅游", "餐饮", "活动", "体验", "展览", "运动课"),
-}
+#: 品类关键词 → 大类。**最长匹配优先**，所以"云服务器"不会被"服务器"抢走。
+#: 订阅类排在最前，因为误判成耐用品会让年化成本被低估 12 倍。
+CATEGORY_RULES = [
+    # 订阅与服务
+    ("云服务器", "subscription"), ("服务器租用", "subscription"), ("主机租用", "subscription"),
+    ("云主机", "subscription"), ("云服务", "subscription"), ("会员", "subscription"),
+    ("订阅", "subscription"), ("年费", "subscription"), ("月费", "subscription"),
+    ("宽带", "subscription"), ("保险", "subscription"), ("云盘", "subscription"),
+    ("SaaS", "subscription"), ("VPS", "subscription"), ("域名", "subscription"),
+    ("API", "subscription"), ("软件", "subscription"), ("服务", "subscription"),
+    # 体验
+    ("演出", "experience"), ("门票", "experience"), ("旅行", "experience"),
+    ("旅游", "experience"), ("餐饮", "experience"), ("活动", "experience"),
+    ("体验", "experience"), ("展览", "experience"), ("运动课", "experience"),
+    ("课程", "experience"),
+    # 耐用
+    ("服务器", "durable"), ("运动器材", "durable"), ("数码", "durable"), ("电子", "durable"),
+    ("手机", "durable"), ("电脑", "durable"), ("家电", "durable"), ("家具", "durable"),
+    ("家居", "durable"), ("乐器", "durable"), ("工具", "durable"), ("厨具", "durable"),
+    ("手表", "durable"), ("箱包", "durable"), ("眼镜", "durable"), ("椅子", "durable"),
+    ("显示器", "durable"), ("键盘", "durable"), ("相机", "durable"), ("主机", "durable"),
+    ("耳机", "durable"), ("平板", "durable"), ("服饰", "durable"), ("鞋", "durable"),
+    # 消耗
+    ("食品", "consumable"), ("零食", "consumable"), ("日耗", "consumable"),
+    ("纸品", "consumable"), ("洗护", "consumable"), ("美妆", "consumable"),
+    ("护肤", "consumable"), ("清洁", "consumable"), ("文具", "consumable"),
+]
+
+#: 长词优先，保证"云服务器"命中订阅而不是"服务器"。
+_SORTED_RULES = sorted(CATEGORY_RULES, key=lambda kv: len(kv[0]), reverse=True)
 
 DEFAULT_THRESHOLD = 500
 DEFAULT_SMALL = 100
-BREACH_MULTIPLE = 6
+#: **安全底线**倍数：可动用存量 + 这么多个月结余都覆盖不了，才判定"真的买不起"。
+#: 这不是消费标准。用 6 倍月结余当红线，对有储蓄但收入不稳定的用户是错的——
+#: 他们的问题不是"月收入撑不住"，而是"这笔钱该不该从存量里出"。
+BREACH_MULTIPLE = 12
 #: 单笔门槛 = max(500, 月可支配 × 25%)。低于 500 元，研究的时间成本超过可能的损失；
 #: 超过月可支配四分之一，就是会影响其它安排的决定。
 THRESHOLD_RATIO = 0.25
@@ -38,9 +58,10 @@ PERIOD_ZH = {"month": "月", "quarter": "季", "year": "年", "once": "一次性
 
 
 def classify_category(category: str | None) -> str:
-    text = str(category or "")
-    for kind, words in CATEGORY_KIND.items():
-        if any(w in text for w in words):
+    """最长关键词优先。品类判错会直接改变"要不要年化"这个根本问题。"""
+    text = str(category or "").lower()
+    for word, kind in _SORTED_RULES:
+        if word.lower() in text:
             return kind
     return "other"
 
@@ -157,46 +178,83 @@ def months_to_afford(price, discretionary_monthly):
     return round(price / disc, 1)
 
 
-def budget_status(price, profile) -> dict:
-    """ok / tight / breach / unknown。
+def budget_status(price, profile, monthly_equiv=None) -> dict:
+    """可承受性判断，分两层：每月现金流、一次性存量。
 
-    breach 与 tight 会被引擎**强制**写入结论，不依赖模型自觉。
+    参数
+    ----
+    price : 这笔消费的**总额**。订阅请传年化总额，否则年付订阅会被严重低估。
+    monthly_equiv : 订阅的每月摊额。给了就先用它去比月现金流——
+        月付 200 的订阅，每月只吃掉 200，不该拿 2400 去和月结余比。
+
+    关键原则：
+    - **不默认存款都能花**：可动用存量 = 现金 − 应急金 − 近期必要支出，缺一项就是未知。
+    - **不只按月收入否决**：月现金流不够时，先看存量拿不拿得出。
+    - 只有用户自设的硬上限，才是"一票否决"。
     """
-    cap = store.fact(profile, "finance.hard_cap_single")
-    disc = store.discretionary(profile)
+    snap = store.financial_snapshot(profile)
+    cap = snap["hard_cap"]
+    out = {"snapshot": snap}
 
     if not isinstance(price, (int, float)) or price <= 0:
-        return {"status": "unknown", "code": "INFO_GAP", "detail": "价格未知，无法做预算判断"}
+        return {**out, "status": "unknown", "code": "INFO_GAP",
+                "detail": "价格未知，无法做预算判断"}
 
     if isinstance(cap, (int, float)) and price > cap:
-        return {
-            "status": "breach", "code": "BUDGET_BREACH", "hard_cap": cap, "reason": "hard_cap",
-            "detail": f"{price} 元超过你自设的单笔上限 {cap} 元",
-        }
+        return {**out, "status": "breach", "code": "BUDGET_BREACH", "reason": "hard_cap",
+                "detail": f"合计 {price:.0f} 元超过你自设的单笔上限 {cap} 元"}
 
-    if not isinstance(disc, (int, float)) or disc <= 0:
-        return {"status": "unknown", "code": "INFO_GAP",
-                "detail": "未设置收入/固定支出，无法做预算判断"}
+    surplus = snap["monthly_surplus"]
+    spend = snap["spendable"]
+    flow = monthly_equiv if isinstance(monthly_equiv, (int, float)) else price
 
-    share = budget_share(price, disc)
-    months = months_to_afford(price, disc)
+    if surplus is None and spend is None:
+        return {**out, "status": "unknown", "code": "INFO_GAP",
+                "detail": "没有可用的收入、支出或存量数据，无法判断承受力"}
 
-    if price > disc * BREACH_MULTIPLE:
-        return {"status": "breach", "code": "BUDGET_BREACH", "share": share, "months": months,
-                "reason": "multiple",
-                "detail": f"相当于 {months} 个月的全部可支配余额"}
-    if price > disc:
-        return {"status": "tight", "code": "BUDGET_TIGHT", "share": share, "months": months,
-                "reason": "over_month",
-                "detail": f"占月可支配 {share:.0%}，需跨 {months} 个月支出"}
-    return {"status": "ok", "code": "AFFORDABLE_WITHIN_BUDGET", "share": share, "months": months,
-            "detail": f"占月可支配 {share:.0%}"}
+    def _ratio(a, b):
+        return round(a / b, 3) if isinstance(b, (int, float)) and b > 0 else None
+
+    if isinstance(surplus, (int, float)) and flow <= max(0.0, surplus):
+        return {**out, "status": "ok", "code": "AFFORDABLE_WITHIN_BUDGET",
+                "share": _ratio(flow, surplus), "months": _ratio(price, surplus),
+                "detail": f"每月摊 {flow:.0f} 元，在月可支配 {surplus:.0f} 元之内"}
+
+    if isinstance(spend, (int, float)) and price <= spend:
+        ratio = _ratio(price, spend) or 1.0
+        return {**out, "status": "ok_stock", "code": "AFFORDABLE_WITHIN_BUDGET",
+                "share": ratio, "months": _ratio(price, surplus) if surplus else None,
+                "heavy": ratio > 0.5,
+                "detail": f"月现金流不够，但可动用存量 {spend:.0f} 元拿得出（占 {ratio:.0%}）"}
+
+    # 有存款但不知道有多少是自由的：先问，不要替他把存款都算成可花
+    if spend is None and isinstance(snap.get("liquid_cash"), (int, float)):
+        return {**out, "status": "unknown", "code": "INFO_GAP",
+                "detail": f"你有 {snap['liquid_cash']:.0f} 元现金，但没填应急金与近半年必要支出，"
+                          "不知道其中多少能真正动用"}
+
+    if isinstance(surplus, (int, float)):
+        capacity = (spend or 0) + max(0.0, surplus) * BREACH_MULTIPLE
+        if price <= capacity:
+            months = round((price - (spend or 0)) / surplus, 1) if surplus > 0 else None
+            return {**out, "status": "tight", "code": "BUDGET_TIGHT",
+                    "share": _ratio(price, surplus), "months": months, "capacity": round(capacity, 2),
+                    "detail": "需要动用存量"
+                              + (f"并再攒约 {months} 个月" if months else "")
+                              + f"（可动用合计上限约 {capacity:.0f} 元）"}
+        return {**out, "status": "breach", "code": "BUDGET_BREACH", "reason": "capacity",
+                "capacity": round(capacity, 2), "share": _ratio(price, surplus),
+                "detail": f"可动用存量加一年结余合计约 {capacity:.0f} 元，仍不够"}
+
+    # 只有存量、没有现金流数据
+    return {**out, "status": "unknown", "code": "INFO_GAP",
+            "detail": f"可动用存量 {spend:.0f} 元不够，且没有收入数据，无法判断能否攒出来"}
 
 
 def emergency_status(price, profile) -> dict:
     """应急金是否够厚。不足时做大额可选消费属于加杠杆，要提示。"""
-    fund = store.fact(profile, "finance.emergency_fund")
-    expense = store.fact(profile, "finance.monthly_fixed_expense")
+    fund = store.fact_fresh(profile, "finance.emergency_fund")
+    expense = store.fact_fresh(profile, "finance.monthly_fixed_expense")
     if not isinstance(fund, (int, float)) or not isinstance(expense, (int, float)) or expense <= 0:
         return {"known": False}
     months = round(fund / expense, 1)
@@ -209,20 +267,30 @@ def emergency_status(price, profile) -> dict:
 
 
 def investment_opportunity(price, profile, years=10) -> dict | None:
-    """把这笔钱换成"未来少多少钱"。只有用户自己设了收益率才算，绝不替他假设。"""
-    rate = store.fact(profile, "invest.expected_annual_return")
+    """把这笔钱换成"假设用于投资会怎样"。
+
+    收益率是用户自己设的**假设**，不是能拿到的收益。
+    输出必须同时给"不投资就是本金"，并且明确写"可能亏损"——
+    把复利当承诺是最容易做的恐吓，也最容易让整段分析失信。
+    """
+    rate = store.fact_fresh(profile, "invest.expected_annual_return")
     if not isinstance(rate, (int, float)) or rate <= 0:
         return None
     if not isinstance(price, (int, float)) or price <= 0:
         return None
-    r = rate / 100 if rate > 1 else rate  # 允许填 8 或 0.08
+    r = rate / 100 if rate > 1 else rate
     future = price * (1 + r) ** years
     return {
         "years": years,
         "rate_pct": round(r * 100, 2),
         "future_value": round(future, 2),
         "forgone": round(future - price, 2),
-        "text": f"按你设定的 {round(r*100,2)}% 年化，{price} 元 {years} 年后是 {round(future)} 元",
+        "hypothetical": True,
+        "disclaimer": "这是按你设定的收益率做的假设测算，不是能拿到的收益；实际可能低于本金。",
+        "text": (
+            f"若把这 {price:.0f} 元按你假设的 {round(r*100,2)}% 年化投 {years} 年，"
+            f"测算约 {round(future)} 元（假设，非承诺；也可能亏损）"
+        ),
     }
 
 

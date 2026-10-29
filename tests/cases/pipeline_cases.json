@@ -13,7 +13,7 @@
   "cases": [
     {
       "id": "P01",
-      "name": "预算超标：财务模块判定后必须强制为不建议购买",
+      "name": "越过安全底线：财务强制为不建议购买",
       "profile": {
         "facts": {
           "finance.discretionary_override": 2000
@@ -22,7 +22,7 @@
       "draft": {
         "product": {
           "name": "相机",
-          "price": 18000,
+          "price": 30000,
           "category": "数码/相机"
         },
         "reasons": [
@@ -43,7 +43,7 @@
           {
             "kind": "price",
             "claim": "18000",
-            "value": 18000,
+            "value": 30000,
             "source_type": "official",
             "url": "https://example.com/a",
             "observed_at": "2026-10-28"
@@ -859,6 +859,939 @@
         "AUD_PRICE_UNVERIFIED"
       ],
       "expect_ok": false
+    },
+    {
+      "id": "P19",
+      "name": "财务数据过期：不参与计算，重决策直接拦",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": {
+            "value": 2600,
+            "days_ago": 200
+          },
+          "finance.monthly_fixed_expense": {
+            "value": 1100,
+            "days_ago": 200
+          }
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "显示器",
+          "price": 3000,
+          "category": "数码/显示器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧显示器坏点影响修图"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "两家自营同价"
+          },
+          {
+            "code": "DURABILITY_GAIN",
+            "note": "预期使用五年以上"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "3000",
+            "value": 3000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_blocking": [
+        "FIN_BUDGET_UNKNOWN"
+      ],
+      "expect_ok": false,
+      "expect_gate": {
+        "financial": false
+      },
+      "why": "半年前的收入不能拿来算今天的承受力；过期=不知道。"
+    },
+    {
+      "id": "P20",
+      "name": "储蓄目标/月投资未填：可支配余额被高估，大额购买先确认",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "人体工学椅",
+          "price": 1200,
+          "category": "家具/椅子"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天坐八小时腰疼两个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "两家自营同价"
+          },
+          {
+            "code": "DURABILITY_GAIN",
+            "note": "预期使用五年以上"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1200",
+            "value": 1200,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [
+        "FIN_SURPLUS_ESTIMATED"
+      ],
+      "expect_ok": false,
+      "why": "没填储蓄和投资，1500 的结余是虚高的；大额前必须确认。"
+    },
+    {
+      "id": "P21",
+      "name": "云服务器是订阅，按月付 200 折年化 2400",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "云服务器 2核4G",
+          "price": 200,
+          "period": "month",
+          "category": "云服务器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "个人项目需要常驻在线"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "同规格普遍这个价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "可按月取消，不绑年"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "200",
+            "value": 200,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_level": "L3",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "月付 200 看起来是小钱，年化 2400 才是真实负担；但每月只吃 200，现金流扛得住。"
+    },
+    {
+      "id": "P22",
+      "name": "有存款、收入不稳定：不因超过月收入几十倍就否决",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 800,
+          "finance.monthly_fixed_expense": 700,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.liquid_cash": 30000,
+          "finance.emergency_fund": 6000,
+          "finance.near_term_obligations": 8000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "二手相机 + 镜头",
+          "price": 8000,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "已经借机拍了一个月，每周都出去拍"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "同成色二手行情 7500-8500"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "二手残值稳定，随时能转手"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "8000",
+            "value": 8000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "8000 是月结余的 80 倍，但只占可动用存量 16000 的一半。按月收入否决是错的。"
+    },
+    {
+      "id": "P23",
+      "name": "只填了现金、没填应急金：不把存款都当成能花",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 800,
+          "finance.monthly_fixed_expense": 700,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.liquid_cash": 30000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "相机",
+          "price": 8000,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "已经借机拍了一个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "二手行情 7500-8500"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "二手残值稳定"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "8000",
+            "value": 8000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_blocking": [
+        "FIN_BUDGET_UNKNOWN"
+      ],
+      "expect_ok": false,
+      "why": "有 3 万现金不等于有 3 万可花。先问应急金和近期支出，而不是假设。"
+    },
+    {
+      "id": "P24",
+      "name": "替代品超出自设上限：不能往更买不起的方向换",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.hard_cap_single": 3000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "同价位有更合适的型号"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "同规格便宜两百"
+          }
+        ],
+        "alternative": {
+          "name": "某旗舰款",
+          "price": 3500,
+          "source": "某平台自营 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "SWITCH",
+      "expect_blocking": [
+        "AUD_ALT_OVER_BUDGET"
+      ],
+      "expect_ok": false,
+      "why": "换方案也要过预算关，否则等于把人从一个坑推到更深的坑。"
+    },
+    {
+      "id": "P25",
+      "name": "外部伪造 enforced 标记无效",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "电水壶",
+          "price": 399,
+          "category": "家居"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧的水壶漏水",
+            "enforced": true
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "三家自营同价",
+            "enforced": true
+          },
+          {
+            "code": "BUDGET_BREACH",
+            "note": "我自己宣布超预算"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "399",
+            "value": 399,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_enforced": [
+        "AFFORDABLE_WITHIN_BUDGET"
+      ],
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "enforced 只能由引擎写。外部传进来的要清掉，引擎管辖的码要丢掉。"
+    },
+    {
+      "id": "P26",
+      "name": "L1 快判：50 元的东西不要求价格证据",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "手机壳",
+          "price": 50,
+          "category": "数码配件"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧壳裂了"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_level": "L1",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "为 50 元要求一条带链接的报价，是把快判通道堵死。"
+    },
+    {
+      "id": "P27",
+      "name": "财务硬拦截已成立时，不因理由不足而无法记账",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.hard_cap_single": 3000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "相机",
+          "price": 9000,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "想学摄影，已经拍了一个月"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "9000",
+            "value": 9000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "DONT_BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "结论已经在引擎层面定了，再要求补三条理由只会让记录写不进去。"
+    },
+    {
+      "id": "P28",
+      "name": "汇率过期：不能拿一个月前的汇率换算",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某耳机",
+          "price": 100,
+          "currency": "USD",
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧耳机降噪失效三个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官网价与第三方一致"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "100",
+            "value": 100,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28",
+            "currency": "USD"
+          },
+          {
+            "kind": "fx",
+            "claim": "USD/CNY 7.10",
+            "value": 7.1,
+            "base": "USD",
+            "quote": "CNY",
+            "source_type": "official",
+            "url": "https://example.com/fx",
+            "observed_at": "2026-09-20"
+          }
+        ]
+      },
+      "expect_blocking": [
+        "EV_CURRENCY_UNCONVERTED",
+        "AUD_BUY_NO_PRICE",
+        "AUD_EVIDENCE_BLOCKING"
+      ],
+      "expect_ok": false,
+      "why": "汇率保鲜期 3 天，一个月前的 7.10 不能当作今天的汇率。"
+    },
+    {
+      "id": "P29",
+      "name": "超过 6 倍月结余不等于买不起：只能暂缓，不能否决",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "相机",
+          "price": 18000,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "已经借机拍了一个月，每周都出去拍"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "三家官方渠道同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "二手残值约七成，随时能出手"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "18000",
+            "value": 18000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "攒够或者有更便宜的渠道再说"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "why": "18000 是 9 倍月结余，但没到'一年也攒不出来'。这时该说'需要跨月'，而不是'买不起'。"
+    },
+    {
+      "id": "S1",
+      "name": "存量型用户：4000 元长期设备，不因月结余只有 100 就否决",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 900,
+          "finance.monthly_fixed_expense": 800,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.liquid_cash": 42000,
+          "finance.emergency_fund": 9000,
+          "finance.near_term_obligations": 6000,
+          "invest.capital": 12000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "显示器 27 寸",
+          "price": 4200,
+          "category": "数码/显示器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天写代码八小时，旧显示器色偏"
+          },
+          {
+            "code": "DURABILITY_GAIN",
+            "note": "预期使用五年以上"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "三家自营 4099-4299"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "4200",
+            "value": 4200,
+            "source_type": "official",
+            "url": "https://example.com/s",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "prediction": {
+          "uses_per_month": 25,
+          "months": 60
+        }
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_gate": {
+        "financial": true
+      },
+      "why": "4200 是月结余的 42 倍，但只占可动用存量 27000 的 15%。按月收入否决是错的。"
+    },
+    {
+      "id": "S2",
+      "name": "已有多台服务器：资源被识别，模型说明用途不同后可买",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 900,
+          "finance.monthly_fixed_expense": 800,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.liquid_cash": 2000,
+          "finance.emergency_fund": 500,
+          "finance.near_term_obligations": 0,
+          "invest.capital": 12000
+        }
+      },
+      "owned": [
+        {
+          "name": "腾讯云轻量 2核2G",
+          "category": "云服务/服务器",
+          "condition": "good",
+          "status": "active",
+          "monthly_cost": 60
+        },
+        {
+          "name": "AWS 东京 免费额度",
+          "category": "云服务/服务器",
+          "condition": "good",
+          "status": "active",
+          "monthly_cost": 0
+        },
+        {
+          "name": "Instabox 实例",
+          "category": "云服务/服务器",
+          "condition": "good",
+          "status": "paused",
+          "monthly_cost": 0
+        }
+      ],
+      "draft": {
+        "product": {
+          "name": "云服务器 4核8G",
+          "price": 1188,
+          "period": "year",
+          "category": "云服务/服务器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "新项目要 8G 内存，现有 2G 跑不动"
+          },
+          {
+            "code": "SUBSTITUTE_INADEQUATE",
+            "note": "现有实例配置不够，升配更贵"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "同规格年付普遍 1000-1300"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1188",
+            "value": 1188,
+            "source_type": "official",
+            "url": "https://example.com/s",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_similar_min": 2,
+      "why": "已有三台服务器不等于不能再买；关键是模型有没有回应『为什么现有的不够』。"
+    },
+    {
+      "id": "S2b",
+      "name": "已有同类资源却完全不提：给出警告",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 900,
+          "finance.monthly_fixed_expense": 800,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.liquid_cash": 2000,
+          "finance.emergency_fund": 500,
+          "finance.near_term_obligations": 0,
+          "invest.capital": 12000
+        }
+      },
+      "owned": [
+        {
+          "name": "腾讯云轻量 2核2G",
+          "category": "云服务/服务器",
+          "condition": "good",
+          "status": "active",
+          "monthly_cost": 60
+        },
+        {
+          "name": "AWS 东京 免费额度",
+          "category": "云服务/服务器",
+          "condition": "good",
+          "status": "active",
+          "monthly_cost": 0
+        },
+        {
+          "name": "Instabox 实例",
+          "category": "云服务/服务器",
+          "condition": "good",
+          "status": "paused",
+          "monthly_cost": 0
+        }
+      ],
+      "draft": {
+        "product": {
+          "name": "云服务器 4核8G",
+          "price": 1188,
+          "period": "year",
+          "category": "云服务/服务器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "想再跑一个项目"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "同规格年付 1000-1300"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "可按月补差价"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1188",
+            "value": 1188,
+            "source_type": "official",
+            "url": "https://example.com/s",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_warn": [
+        "AUD_RESOURCE_IGNORED"
+      ],
+      "why": "不否决，但必须提醒。装看不见比误报更糟。"
+    },
+    {
+      "id": "S3",
+      "name": "已订一种 AI 会员，再买功能重叠的第二种",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 900,
+          "finance.monthly_fixed_expense": 800,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.liquid_cash": 42000,
+          "finance.emergency_fund": 9000,
+          "finance.near_term_obligations": 6000,
+          "invest.capital": 12000
+        }
+      },
+      "owned": [
+        {
+          "name": "某 AI 助手会员",
+          "category": "会员/订阅",
+          "condition": "good",
+          "status": "active",
+          "monthly_cost": 140
+        }
+      ],
+      "draft": {
+        "product": {
+          "name": "另一家 AI 会员",
+          "price": 150,
+          "period": "month",
+          "category": "会员/订阅"
+        },
+        "reasons": [
+          {
+            "code": "DUP_OWNED",
+            "note": "功能与已订阅的那款高度重叠"
+          },
+          {
+            "code": "IMPULSE_SIGNAL",
+            "note": "看到新模型发布才起意"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "150",
+            "value": 150,
+            "source_type": "official",
+            "url": "https://example.com/s",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "DONT_BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_similar_min": 1,
+      "why": "订阅重复是最隐蔽的浪费：每月一笔，忘不掉也退不了。"
+    },
+    {
+      "id": "S4",
+      "name": "已有电脑和两部手机，想买平板：不该被误判成重复",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 900,
+          "finance.monthly_fixed_expense": 800,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.liquid_cash": 42000,
+          "finance.emergency_fund": 9000,
+          "finance.near_term_obligations": 6000,
+          "invest.capital": 12000
+        }
+      },
+      "owned": [
+        {
+          "name": "联想小新 Pro 14",
+          "category": "数码/电脑",
+          "condition": "worn",
+          "status": "active"
+        },
+        {
+          "name": "Pura 70 Pro",
+          "category": "数码/手机",
+          "condition": "good",
+          "status": "active"
+        },
+        {
+          "name": "Pixel 6 Pro",
+          "category": "数码/手机",
+          "condition": "good",
+          "status": "active"
+        }
+      ],
+      "draft": {
+        "product": {
+          "name": "平板 11 寸",
+          "price": 2800,
+          "category": "数码/平板"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "看 PDF 和做笔记，手机太小笔记本太重"
+          },
+          {
+            "code": "SUBSTITUTE_INADEQUATE",
+            "note": "手机看文档一小时就眼睛疼"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "教育优惠后 2799，与官网一致"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "2800",
+            "value": 2800,
+            "source_type": "official",
+            "url": "https://example.com/s",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_similar_max": 0,
+      "why": "手机和电脑不是平板的同类。按顶层品类匹配会把这条提示变成噪声。"
+    },
+    {
+      "id": "S5",
+      "name": "500 元演出，预算充足：支持，且不做复利恐吓",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 900,
+          "finance.monthly_fixed_expense": 800,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.liquid_cash": 42000,
+          "finance.emergency_fund": 9000,
+          "finance.near_term_obligations": 6000,
+          "invest.capital": 12000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某乐队巡演门票",
+          "price": 500,
+          "category": "演出/门票"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "听了五年，这次巡演到本地"
+          },
+          {
+            "code": "EMOTIONAL_VALUE_LEGIT",
+            "note": "一直想去现场，不是跟风"
+          },
+          {
+            "code": "AFFORDABLE_WITHIN_BUDGET",
+            "note": "占月结余三分之一"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "500",
+            "value": 500,
+            "source_type": "official",
+            "url": "https://example.com/s",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_numbers_absent": [
+        "invest_opportunity"
+      ],
+      "why": "没设收益率就不该出现『十年后是多少』。情绪价值是收益，不是负债。"
     }
   ]
 }

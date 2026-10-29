@@ -127,8 +127,11 @@ def run_calc():
     for c in _load("calc_cases.json"):
         fn = getattr(calc, c["fn"])
         label = c.get("name") or c["fn"]
+        # 夹具里写 "TODAY" 的日期替换成当天，避免测试随真实时间腐坏
+        raw_args = json.loads(json.dumps(c.get("args") or []).replace('"TODAY"', '"%s"' % _today()))
+        raw_kwargs = json.loads(json.dumps(c.get("kwargs") or {}).replace('"TODAY"', '"%s"' % _today()))
         try:
-            got = fn(*(c.get("args") or []), **(c.get("kwargs") or {}))
+            got = fn(*raw_args, **raw_kwargs)
         except Exception as exc:  # noqa: BLE001
             out.append(_res("calc", c["id"], label, False, f"{c['fn']} 抛异常：{exc!r}"))
             continue
@@ -148,13 +151,29 @@ def run_calc():
     return out
 
 
+def _today():
+    import datetime as _dt
+    return _dt.date.today().isoformat()
+
+
 def _fixture_profile(spec: dict) -> dict:
-    """用扁平 facts 构造一份 v2 画像，不动磁盘。"""
+    """用扁平 facts 构造一份 v2 画像，不动磁盘。
+
+    fact 值可以是纯值（表示"今天刚确认"），也可以是
+    ``{"value": x, "days_ago": n}``（表示 n 天前填的，用于测过期逻辑）。
+    """
+    import datetime as _dt
+
     p = json.loads(json.dumps(store.DEFAULT_PROFILE_V2))
-    p["facts"] = {
-        k: {"value": v, "updated_at": "2026-10-29", "note": "夹具"}
-        for k, v in (spec.get("facts") or {}).items()
-    }
+    today = _dt.date.today()
+    facts = {}
+    for k, v in (spec.get("facts") or {}).items():
+        if isinstance(v, dict) and "days_ago" in v:
+            when = (today - _dt.timedelta(days=int(v["days_ago"]))).isoformat()
+            facts[k] = {"value": v.get("value"), "updated_at": when, "note": "夹具"}
+        else:
+            facts[k] = {"value": v, "updated_at": today.isoformat(), "note": "夹具"}
+    p["facts"] = facts
     p["constraints"] = {**store.DEFAULT_CONSTRAINTS, **(spec.get("constraints") or {})}
     p["meta"]["base_currency"] = spec.get("base_currency", "CNY")
     return p
@@ -169,8 +188,9 @@ def run_pipeline():
         profile = _fixture_profile(c.get("profile") or {})
         draft = copy.deepcopy(c["draft"])
         draft.setdefault("as_of", FIXTURE_TODAY)
+        owned = c.get("owned")
         try:
-            result = mbm._evaluate(draft, profile)
+            result = mbm._evaluate(draft, profile, owned)
         except Exception as exc:  # noqa: BLE001
             out.append(_res("pipeline", c["id"], c["name"], False, f"抛异常：{exc!r}"))
             continue
@@ -189,9 +209,31 @@ def run_pipeline():
         want_ok = c.get("expect_ok")
         if want_ok is not None and result["ok"] != want_ok:
             problems.append(f"ok={result['ok']} 期望 {want_ok}")
+        want_enforced = c.get("expect_enforced")
+        if want_enforced is not None:
+            got_enforced = sorted(result["verdict"].get("enforced") or [])
+            if got_enforced != sorted(want_enforced):
+                problems.append(f"enforced={got_enforced} 期望 {sorted(want_enforced)}")
         want_level = c.get("expect_level")
         if want_level and result["level"]["level"] != want_level:
             problems.append(f"等级 {result['level']['level']} 期望 {want_level}")
+        want_warn = c.get("expect_warn")
+        if want_warn is not None:
+            got_warn = set()
+            for gate in result["gates"].values():
+                got_warn |= {f["code"] for f in gate.get("findings") or [] if f["severity"] == "WARN"}
+            missing_warn = set(want_warn) - got_warn
+            if missing_warn:
+                problems.append(f"缺警告 {sorted(missing_warn)}；实际 {sorted(got_warn)}")
+        res = (result["numbers"] or {}).get("resources") or {}
+        similar_n = len(res.get("similar") or [])
+        if c.get("expect_similar_min") is not None and similar_n < c["expect_similar_min"]:
+            problems.append(f"同类资源 {similar_n} 个，期望至少 {c['expect_similar_min']}")
+        if c.get("expect_similar_max") is not None and similar_n > c["expect_similar_max"]:
+            problems.append(f"同类资源 {similar_n} 个，期望至多 {c['expect_similar_max']}")
+        for key in c.get("expect_numbers_absent") or []:
+            if result["numbers"].get(key) is not None:
+                problems.append(f"numbers.{key} 不该出现，实际 {result['numbers'].get(key)}")
         for key, want in (c.get("expect_gate") or {}).items():
             got = result["gates"][key]["ok"]
             if got != want:

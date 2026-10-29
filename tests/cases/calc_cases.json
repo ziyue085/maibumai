@@ -73,13 +73,14 @@
     {
       "id": "C06",
       "fn": "budget_status",
-      "name": "18000 元 vs 月可支配 2000",
+      "name": "30000 元 vs 月结余 2000：越过安全底线",
       "args": [
-        18000,
+        30000,
         {
           "facts": {
             "finance.discretionary_override": {
-              "value": 2000
+              "value": 2000,
+              "updated_at": "TODAY"
             }
           }
         }
@@ -98,7 +99,8 @@
         {
           "facts": {
             "finance.discretionary_override": {
-              "value": 2000
+              "value": 2000,
+              "updated_at": "TODAY"
             }
           }
         }
@@ -159,7 +161,8 @@
         {
           "facts": {
             "finance.discretionary_override": {
-              "value": 3000
+              "value": 3000,
+              "updated_at": "TODAY"
             }
           }
         }
@@ -176,7 +179,8 @@
         {
           "facts": {
             "finance.discretionary_override": {
-              "value": 8000
+              "value": 8000,
+              "updated_at": "TODAY"
             }
           }
         }
@@ -295,7 +299,8 @@
         {
           "facts": {
             "invest.expected_annual_return": {
-              "value": 8
+              "value": 8,
+              "updated_at": "TODAY"
             }
           }
         }
@@ -335,6 +340,147 @@
         "level": "L3"
       },
       "why": "周期不明时，200 可能是月付也可能是年付，差 12 倍，必须按最严处理。"
+    },
+    {
+      "id": "C23",
+      "fn": "investment_opportunity",
+      "name": "复利测算必须标注为假设",
+      "args": [
+        1000,
+        {
+          "facts": {
+            "invest.expected_annual_return": {
+              "value": 8,
+              "updated_at": "TODAY"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "hypothetical": true
+      },
+      "why": "把预期收益率当承诺，是这套系统最容易失信的地方。"
+    },
+    {
+      "id": "C24",
+      "fn": "classify_category",
+      "name": "云服务器是订阅不是耐用品",
+      "args": [
+        "云服务器"
+      ],
+      "expect": {
+        "value": "subscription"
+      }
+    },
+    {
+      "id": "C25",
+      "fn": "classify_category",
+      "name": "买一台实体服务器仍是耐用品",
+      "args": [
+        "服务器"
+      ],
+      "expect": {
+        "value": "durable"
+      }
+    },
+    {
+      "id": "C26",
+      "fn": "budget_status",
+      "name": "存量可覆盖时不算超标",
+      "args": [
+        8000,
+        {
+          "facts": {
+            "finance.monthly_income": {
+              "value": 800,
+              "updated_at": "TODAY"
+            },
+            "finance.monthly_fixed_expense": {
+              "value": 700,
+              "updated_at": "TODAY"
+            },
+            "finance.savings_target_monthly": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "invest.monthly_contribution": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "finance.liquid_cash": {
+              "value": 30000,
+              "updated_at": "TODAY"
+            },
+            "finance.emergency_fund": {
+              "value": 6000,
+              "updated_at": "TODAY"
+            },
+            "finance.near_term_obligations": {
+              "value": 8000,
+              "updated_at": "TODAY"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "status": "ok_stock",
+        "code": "AFFORDABLE_WITHIN_BUDGET"
+      }
+    },
+    {
+      "id": "C27",
+      "fn": "budget_status",
+      "name": "订阅用月摊额比月现金流",
+      "args": [
+        2400,
+        {
+          "facts": {
+            "finance.monthly_income": {
+              "value": 2600,
+              "updated_at": "TODAY"
+            },
+            "finance.monthly_fixed_expense": {
+              "value": 1100,
+              "updated_at": "TODAY"
+            },
+            "finance.savings_target_monthly": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "invest.monthly_contribution": {
+              "value": 0,
+              "updated_at": "TODAY"
+            }
+          }
+        }
+      ],
+      "kwargs": {
+        "monthly_equiv": 200
+      },
+      "expect": {
+        "status": "ok"
+      }
+    },
+    {
+      "id": "C28",
+      "fn": "budget_status",
+      "name": "18000 元 vs 月结余 2000：是紧张，不是买不起",
+      "args": [
+        18000,
+        {
+          "facts": {
+            "finance.discretionary_override": {
+              "value": 2000,
+              "updated_at": "TODAY"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "status": "tight",
+        "code": "BUDGET_TIGHT"
+      },
+      "why": "9 倍月结余够紧张，但离'一年也攒不出来'还远。用 6 倍当红线会误杀有储蓄的人。"
     }
   ]
 }

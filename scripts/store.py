@@ -45,8 +45,8 @@ CONDITIONS = ("good", "worn", "failing", "broken", "gone")
 FACT_SPECS = {
     "finance.monthly_income": {
         "q": "每月固定进账大概多少？（生活费 + 兼职 + 奖学金，按月均算）",
-        "ttl": 180, "prio": 1, "type": "number",
-        "why": "判断承受力的起点",
+        "ttl": 90, "prio": 1, "type": "number",
+        "why": "判断承受力的起点；学生收入不稳定，三个月就要重新确认",
     },
     "finance.monthly_fixed_expense": {
         "q": "每月固定支出大概多少？（吃住行话费，不含可选消费）",
@@ -69,9 +69,24 @@ FACT_SPECS = {
         "why": "硬约束：超过直接不建议购买",
     },
     "finance.emergency_fund": {
-        "q": "应急金现在有多少？（随时能取出来的部分）",
-        "ttl": 365, "prio": 2, "type": "number",
-        "why": "应急金不足时不该做大额可选消费",
+        "q": "应急金现在有多少？（随时能取、但不该拿去买东西的那部分）",
+        "ttl": 180, "prio": 2, "type": "number",
+        "why": "应急金不算可消费资金，算进去会高估承受力",
+    },
+    "finance.liquid_cash": {
+        "q": "手上随时能动的钱一共多少？（活期 + 货基 + 余额宝，不含投资持仓）",
+        "ttl": 90, "prio": 2, "type": "number",
+        "why": "一次性大额消费要看存量，不能只按月收入算",
+    },
+    "finance.near_term_obligations": {
+        "q": "未来半年已经定下来的必要支出大概多少？（学费、房租、还款、押金）",
+        "ttl": 90, "prio": 3, "type": "number",
+        "why": "这笔钱已经名花有主，不能算进可动用存量",
+    },
+    "finance.spendable_override": {
+        "q": "（可选）想直接指定『我最多能拿出多少买东西』吗？留空则自动推算",
+        "ttl": 90, "prio": 3, "type": "number",
+        "why": "覆盖自动推算的可动用存量",
     },
     "invest.capital": {
         "q": "目前可投资本金大概多少？（不含应急金）",
@@ -158,6 +173,26 @@ FACT_SPECS = {
         "ttl": 180, "prio": 3, "type": "number",
         "why": "覆盖自动推算值",
     },
+    "finance.net_worth": {
+        "q": "净资产大概多少？（现金 + 投资 + 应收 − 负债）",
+        "ttl": 180, "prio": 3, "type": "number",
+        "why": "看整体位置；不直接等于可消费金额",
+    },
+    "finance.receivable": {
+        "q": "有多少钱是别人欠你的、但还没到手？",
+        "ttl": 90, "prio": 3, "type": "number",
+        "why": "应收款不能当现金用",
+    },
+    "finance.liabilities": {
+        "q": "目前有多少负债？（花呗、分期、借款）",
+        "ttl": 90, "prio": 2, "type": "number",
+        "why": "负债会直接压缩可支配空间",
+    },
+    "invest.exposure_note": {
+        "q": "投资大致分布？一句话就行（例如：纳指、A股、少量加密）",
+        "ttl": 365, "prio": 3, "type": "text",
+        "why": "多只同向基金其实是同一份风险，不是分散",
+    },
 }
 
 DEFAULT_CONSTRAINTS = {
@@ -166,6 +201,26 @@ DEFAULT_CONSTRAINTS = {
     "must_be_portable": False,
     "notes": "",
 }
+
+#: 参与财务计算的事实。过期的按"未知"处理，不参与计算。
+FINANCE_KEYS = (
+    "finance.monthly_income",
+    "finance.monthly_fixed_expense",
+    "finance.savings_target_monthly",
+    "invest.monthly_contribution",
+    "finance.liquid_cash",
+    "finance.emergency_fund",
+    "finance.near_term_obligations",
+    "finance.hard_cap_single",
+)
+
+#: 仅用于展示的金额字段（不进计算，但要提示待确认/过期）。
+MONEY_KEYS = FINANCE_KEYS + (
+    "finance.net_worth",
+    "finance.receivable",
+    "finance.liabilities",
+    "invest.capital",
+)
 
 DEFAULT_PROFILE_V2 = {
     "schema_version": SCHEMA_VERSION,
@@ -331,11 +386,15 @@ def _coerce(raw, kind: str):
     return text
 
 
-def _set_fact_raw(profile: dict, key: str, value, note: str = "") -> None:
+def _set_fact_raw(profile: dict, key: str, value, note: str = "",
+                  source: str = "", confirmed: bool = True,
+                  updated_at: str | None = None) -> None:
     profile.setdefault("facts", {})[key] = {
         "value": value,
-        "updated_at": today_str(),
+        "updated_at": updated_at or today_str(),
         "note": note or "",
+        "source": source or "",
+        "confirmed": bool(confirmed),
     }
 
 
@@ -350,14 +409,52 @@ def set_fact(key: str, value, note: str = "") -> dict:
 
 
 def confirm_fact(key: str) -> dict:
-    """用户确认"还是这个数"，只刷新时间不改变值。"""
+    """用户确认"还是这个数"，刷新时间并标记为已确认。"""
     profile = load_profile()
     item = profile.get("facts", {}).get(key)
     if not item:
         raise KeyError(f"{key} 还没有值，不能确认")
     item["updated_at"] = today_str()
+    item["confirmed"] = True
     save_profile(profile)
     return item
+
+
+def seed_facts(entries: dict, force: bool = False) -> dict:
+    """写入一批候选事实（历史快照、用户口述）。
+
+    ``entries`` 形如::
+
+        {"finance.liquid_cash": {"value": 32000, "observed_at": "2026-08-31",
+                                 "source": "用户资产快照", "confirmed": false}}
+
+    默认 **不覆盖** 已确认的事实；且所有写入的 confirmed 默认为 false——
+    历史数字不能当作当前数字用。
+    """
+    profile = load_profile()
+    written, skipped = [], []
+    for key, meta in (entries or {}).items():
+        if key not in FACT_SPECS:
+            skipped.append({"key": key, "reason": "未知字段"})
+            continue
+        if not isinstance(meta, dict) or "value" not in meta:
+            skipped.append({"key": key, "reason": "缺少 value"})
+            continue
+        existing = (profile.get("facts") or {}).get(key) or {}
+        if existing.get("value") is not None and existing.get("confirmed", True) and not force:
+            skipped.append({"key": key, "reason": "已有确认值，未覆盖"})
+            continue
+        value = _coerce(meta.get("value"), FACT_SPECS[key]["type"])
+        _set_fact_raw(
+            profile, key, value,
+            note=meta.get("note", ""),
+            source=meta.get("source", ""),
+            confirmed=bool(meta.get("confirmed", False)),
+            updated_at=meta.get("observed_at"),
+        )
+        written.append(key)
+    save_profile(profile)
+    return {"written": written, "skipped": skipped}
 
 
 def fact(profile: dict, key: str, default=None):
@@ -376,11 +473,29 @@ def fact_age(profile: dict, key: str):
     return (_dt.date.today() - then).days
 
 
+def fact_confirmed(profile: dict, key: str) -> bool:
+    item = (profile.get("facts") or {}).get(key) or {}
+    return item.get("confirmed", True) is not False
+
+
 def fact_stale(profile: dict, key: str) -> bool:
+    """过期 = 不可信。
+
+    三种情况都算不可信：
+    1. 超过保鲜期；
+    2. 财务类字段连 updated_at 都没有；
+    3. 标记为未确认（历史快照、别人给的数字）。
+    """
     spec = FACT_SPECS.get(key) or {}
     ttl = spec.get("ttl")
+    if not fact_confirmed(profile, key) and key in FINANCE_KEYS:
+        return True
+    if not ttl:
+        return False
     age = fact_age(profile, key)
-    return bool(ttl and age is not None and age > ttl)
+    if age is None:
+        return key in FINANCE_KEYS
+    return age > ttl
 
 
 def gaps(profile: dict, limit: int | None = None, min_prio: int = 3) -> list:
@@ -395,6 +510,8 @@ def gaps(profile: dict, limit: int | None = None, min_prio: int = 3) -> list:
         age = fact_age(profile, key)
         if value is None:
             reason, score = "missing", 0
+        elif not fact_confirmed(profile, key):
+            reason, score = "unconfirmed", age or 0
         elif fact_stale(profile, key):
             reason, score = "stale", age or 0
         else:
@@ -412,51 +529,150 @@ def gaps(profile: dict, limit: int | None = None, min_prio: int = 3) -> list:
     return out[:limit] if limit else out
 
 
-def discretionary(profile: dict):
-    """每月可自由支配金额。
+def fact_fresh(profile: dict, key: str):
+    """只返回未过期的值。过期 = 不知道，不是"大概是这个数"。"""
+    if fact_stale(profile, key):
+        return None
+    return fact(profile, key)
 
-    优先级：手动指定 > 收入 − 固定支出 − 储蓄目标 − 投资额。
-    任一必需输入缺失就返回 None——不猜。
+
+def financial_snapshot(profile: dict) -> dict:
+    """把画像拆成两层：**每月现金流** 与 **一次性存量**。
+
+    这两件事不能混：
+    - 月可支配决定"这笔钱会不会挤掉日常"
+    - 可动用存量决定"一次性大额拿不拿得出"
+
+    任何一项缺失就留 None，绝不用 0 顶替——把没填的储蓄/投资当成 0，
+    会直接高估可支配余额。
     """
-    override = fact(profile, "finance.discretionary_override")
-    if isinstance(override, (int, float)):
-        return float(override)
-    income = fact(profile, "finance.monthly_income")
-    expense = fact(profile, "finance.monthly_fixed_expense")
-    if not isinstance(income, (int, float)) or not isinstance(expense, (int, float)):
-        return None
-    save = fact(profile, "finance.savings_target_monthly") or 0
-    invest = fact(profile, "invest.monthly_contribution") or 0
-    try:
-        return max(0.0, float(income) - float(expense) - float(save) - float(invest))
-    except (TypeError, ValueError):
-        return None
+    income = fact_fresh(profile, "finance.monthly_income")
+    expense = fact_fresh(profile, "finance.monthly_fixed_expense")
+    save = fact_fresh(profile, "finance.savings_target_monthly")
+    invest_month = fact_fresh(profile, "invest.monthly_contribution")
+    surplus_override = fact_fresh(profile, "finance.discretionary_override")
+
+    surplus = None
+    estimated = False
+    if isinstance(surplus_override, (int, float)):
+        surplus = float(surplus_override)
+    elif isinstance(income, (int, float)) and isinstance(expense, (int, float)):
+        surplus = float(income) - float(expense) - float(save or 0) - float(invest_month or 0)
+        # 储蓄目标或投资额没填 → 余额被高估，必须标记
+        estimated = (save is None) or (invest_month is None)
+
+    cash = fact_fresh(profile, "finance.liquid_cash")
+    emergency = fact_fresh(profile, "finance.emergency_fund")
+    near = fact_fresh(profile, "finance.near_term_obligations")
+    spend_override = fact_fresh(profile, "finance.spendable_override")
+
+    spendable, spendable_note = None, ""
+    if isinstance(spend_override, (int, float)):
+        spendable = float(spend_override)
+        spendable_note = "按你手动指定的可动用金额"
+    elif isinstance(cash, (int, float)) and isinstance(emergency, (int, float)) \
+            and isinstance(near, (int, float)):
+        spendable = max(0.0, float(cash) - float(emergency) - float(near))
+        spendable_note = "活期/现金 − 应急金 − 近期必要支出"
+    elif isinstance(cash, (int, float)):
+        spendable_note = "只填了现金总额，未扣应急金与近期支出 ⇒ 不把存款当成都能花"
+    else:
+        spendable_note = "还没填现金与应急金，不知道有多少能真正动用"
+
+    unconfirmed = [
+        k for k in MONEY_KEYS
+        if fact(profile, k) is not None and not fact_confirmed(profile, k)
+    ]
+    stale = [
+        k for k in MONEY_KEYS
+        if fact(profile, k) is not None and fact_confirmed(profile, k) and fact_stale(profile, k)
+    ]
+    missing = [k for k in FINANCE_KEYS if fact(profile, k) is None]
+
+    return {
+        "monthly_surplus": None if surplus is None else round(surplus, 2),
+        "surplus_estimated": estimated,
+        "spendable": None if spendable is None else round(spendable, 2),
+        "spendable_note": spendable_note,
+        "hard_cap": fact_fresh(profile, "finance.hard_cap_single"),
+        "emergency_fund": emergency,
+        "near_term_obligations": near,
+        "liquid_cash": cash,
+        "invest_capital": fact_fresh(profile, "invest.capital"),
+        "receivable": fact_fresh(profile, "finance.receivable"),
+        "liabilities": fact_fresh(profile, "finance.liabilities"),
+        "net_worth": fact_fresh(profile, "finance.net_worth"),
+        "stale_fields": stale,
+        "missing_fields": missing,
+        "unconfirmed_fields": unconfirmed,
+        "known": surplus is not None or spendable is not None,
+    }
+
+
+def discretionary(profile: dict):
+    """每月可支配余额（兼容旧接口）。"""
+    return financial_snapshot(profile)["monthly_surplus"]
 
 
 def brief(profile: dict) -> str:
-    """给模型读的一页摘要。缺什么就写未知，不填默认值。"""
-    def g(key, unit="", dash="未知"):
-        v = fact(profile, key)
-        return f"{v}{unit}" if v is not None else dash
+    """给模型读的一页摘要：严格按"存量 / 现金流"六层展开。
 
-    disc = discretionary(profile)
+    缺什么写未知，历史值写"待确认"，过期的写"已过期"——
+    这三者语义不同，混在一起就会拿旧数字当现数字。
+    """
+    def view(key, unit=" 元"):
+        item = (profile.get("facts") or {}).get(key) or {}
+        val = item.get("value")
+        if val is None:
+            return "未知"
+        if not fact_confirmed(profile, key):
+            when = item.get("updated_at") or "日期不明"
+            return f"{val}{unit}（{when} 记录，待确认）"
+        if fact_stale(profile, key):
+            return f"{val}{unit}（已过期，{item.get('updated_at')}）"
+        return f"{val}{unit}"
+
+    snap = financial_snapshot(profile)
     used_ok = fact(profile, "pref.used_ok")
     used_txt = "可以" if used_ok is True else ("不接受" if used_ok is False else "未知")
+
+    surplus = snap["monthly_surplus"]
+    if surplus is None:
+        surplus_txt = "未知"
+    elif snap["surplus_estimated"]:
+        surplus_txt = f"约 {surplus:.0f} 元（偏高：储蓄目标/月投资未填）"
+    else:
+        surplus_txt = f"约 {surplus:.0f} 元"
+
+    spend = snap["spendable"]
+    spend_txt = f"{spend:.0f} 元" if spend is not None else "未知"
+
     lines = [
-        "【画像摘要】",
-        f"阶段：{g('life.stage')}｜城市：{g('life.city')}｜居住：{g('life.living')}",
-        f"月收入 {g('finance.monthly_income', ' 元')}"
-        f"｜月固定支出 {g('finance.monthly_fixed_expense', ' 元')}"
-        f"｜月储蓄目标 {g('finance.savings_target_monthly', ' 元')}"
-        f"｜月投资 {g('invest.monthly_contribution', ' 元')}",
-        "→ 月可支配 " + (f"约 {disc:.0f} 元" if disc is not None else "未知（缺收入或固定支出）"),
-        f"可投资本金 {g('invest.capital', ' 元')}"
-        f"｜应急金 {g('finance.emergency_fund', ' 元')}"
-        f"｜单笔硬上限 {g('finance.hard_cap_single', ' 元', '未设')}",
-        f"主目标：{g('goal.name')}（每月 {g('goal.monthly', ' 元')}）",
-        f"偏好：价格敏感 {g('pref.price_sensitivity')}｜{g('pref.quality_vs_price')}"
-        f"｜耐用 {g('pref.durability_weight')}｜便利 {g('pref.convenience_weight')}"
-        f"｜二手 {used_txt}",
+        "【财务画像｜存量与现金流分开看】",
+        f"① 净资产：{view('finance.net_worth')}",
+        f"   构成：现金 {view('finance.liquid_cash')}"
+        f"｜投资 {view('invest.capital')}"
+        f"｜应收款 {view('finance.receivable')}"
+        f"｜负债 {view('finance.liabilities')}",
+        f"② 可动用现金：{view('finance.liquid_cash')}",
+        f"③ 应急与必要支出储备：应急金 {view('finance.emergency_fund')}"
+        f"｜近半年必要支出 {view('finance.near_term_obligations')}",
+        "④ 已安排用途的资金：见 ③ 中的近期必要支出与应急金（这两笔不算可花）",
+        f"⑤ 可自由消费资金：{spend_txt}（{snap['spendable_note']}）",
+        f"⑥ 每月现金流：收入 {view('finance.monthly_income')}"
+        f"｜固定支出 {view('finance.monthly_fixed_expense')}"
+        f"｜储蓄目标 {view('finance.savings_target_monthly')}"
+        f"｜月投资 {view('invest.monthly_contribution')}",
+        f"   → 月结余 {surplus_txt}",
+        f"· 单笔硬上限：{view('finance.hard_cap_single') if fact(profile,'finance.hard_cap_single') is not None else '未设'}",
+        f"· 投资敞口：{view('invest.exposure_note', '')}"
+        f"（多只同向基金是同一份风险，不是分散）",
+        f"生活：{view('life.stage','')}｜{view('life.city','')}｜{view('life.living','')}",
+        f"主目标：{view('goal.name','')}（每月 {view('goal.monthly')}）",
+        f"偏好：价格敏感 {view('pref.price_sensitivity','')}"
+        f"｜{view('pref.quality_vs_price','')}"
+        f"｜耐用 {view('pref.durability_weight','')}"
+        f"｜便利 {view('pref.convenience_weight','')}｜二手 {used_txt}",
     ]
     cons = profile.get("constraints") or {}
     tags = []
@@ -472,10 +688,16 @@ def brief(profile: dict) -> str:
     interests = fact(profile, "interests.list")
     lines.append("长期兴趣：" + ("、".join(interests) if interests else "未知"))
 
-    pending = gaps(profile, limit=5)
+    if snap["unconfirmed_fields"]:
+        lines.append("⚠ 只有历史记录、未被确认（不参与计算）：" + "、".join(snap["unconfirmed_fields"]))
+    if snap["stale_fields"]:
+        lines.append("⚠ 已过期、不参与计算：" + "、".join(snap["stale_fields"]))
+
+    pending = gaps(profile, limit=6)
     if pending:
         tag = "、".join(
-            "%s%s" % (row["key"], "(过期)" if row["reason"] == "stale" else "") for row in pending
+            "%s(%s)" % (row["key"], {"missing": "缺", "stale": "过期", "unconfirmed": "待确认"}[row["reason"]])
+            for row in pending
         )
         lines.append(f"待补/待确认：{tag}")
     return "\n".join(lines)
@@ -526,7 +748,13 @@ def add_owned(item: dict) -> dict:
         "condition": cond,
         "satisfaction": item.get("satisfaction"),
         "notes": item.get("notes", ""),
+        # 服务类资源：每月成本与状态，用于判断"是否重复订阅""长期负担多重"
+        "monthly_cost": item.get("monthly_cost"),
+        "status": item.get("status", "active"),
+        "vendor": item.get("vendor", ""),
     }
+    if record["status"] not in ("active", "paused", "expired"):
+        raise ValueError("status 必须是 active / paused / expired")
     for idx, old in enumerate(data["items"]):
         if old.get("name") == record["name"] and old.get("category") == record["category"]:
             record["id"] = old.get("id", record["id"])
@@ -554,9 +782,9 @@ def find_owned(query: str) -> list:
     return hits
 
 
-def owned_digest() -> str:
+def owned_digest(items=None) -> str:
     """给模型读的精简清单。"""
-    items = load_owned()["items"]
+    items = load_owned()["items"] if items is None else items
     if not items:
         return "（尚未登记任何已有物品）"
     lines = []
@@ -566,10 +794,66 @@ def owned_digest() -> str:
             "good": "良好", "worn": "有磨损可用", "failing": "勉强能用",
             "broken": "已坏", "gone": "已处理",
         }.get(cond, cond)
+        status = item.get("status") or "active"
+        status_txt = {"active": "在用", "paused": "暂停", "expired": "已停"}.get(status, status)
+        cost = item.get("monthly_cost")
+        extra = f"｜${cost}/月" if isinstance(cost, (int, float)) else ""
         sat = item.get("satisfaction")
-        extra = f"｜满意度 {sat}/5" if sat else ""
-        lines.append(f"- {item.get('name')}｜{item.get('category')}｜{mark}{extra}")
+        if sat:
+            extra += f"｜满意度 {sat}/5"
+        lines.append(f"- {item.get('name')}｜{item.get('category')}｜{mark}｜{status_txt}{extra}")
+    total = resource_overview(items)["monthly_subscription_total"]
+    if total:
+        lines.append(f"（在用服务合计约 {total} 元/月）")
     return "\n".join(lines)
+
+
+def resource_overview(items=None) -> dict:
+    """已有资源盘点：哪些在用、每月共花多少、有哪些是服务类。"""
+    items = load_owned()["items"] if items is None else items
+    active = [i for i in items if (i.get("status") or "active") == "active"]
+    subs = [i for i in active if isinstance(i.get("monthly_cost"), (int, float))]
+    total = round(sum(float(i["monthly_cost"]) for i in subs), 2)
+    return {
+        "items": items,
+        "active_count": len(active),
+        "subscriptions": subs,
+        "monthly_subscription_total": total,
+    }
+
+
+def _subcategory(category) -> str:
+    """取品类最后一段。'数码/耳机' → '耳机'。"""
+    parts = [p for p in str(category or "").split("/") if p]
+    return parts[-1] if parts else ""
+
+
+def similar_resources(product: dict, items=None) -> list:
+    """找出可能与这笔消费重叠的已有资源。
+
+    判据只有两条：**子品类相同**，或**名称有词元重合**。
+    不用顶层品类——买平板时把手机、笔记本都算成"已有同类"，
+    只会制造噪声，最后没人看提示。
+    """
+    name = str((product or {}).get("name") or "")
+    subcat = _subcategory((product or {}).get("category"))
+    tokens = [t for t in name.replace("（", " ").replace("）", " ").split() if len(t) >= 2]
+    hits = []
+    for item in (load_owned()["items"] if items is None else items):
+        if (item.get("status") or "active") != "active":
+            continue
+        same_sub = bool(subcat) and subcat == _subcategory(item.get("category"))
+        item_name = str(item.get("name") or "")
+        name_hit = any(t and t in item_name for t in tokens)
+        if same_sub or name_hit:
+            hits.append({
+                "name": item.get("name"),
+                "category": item.get("category"),
+                "condition": item.get("condition"),
+                "status": item.get("status") or "active",
+                "monthly_cost": item.get("monthly_cost"),
+            })
+    return hits
 
 
 # --------------------------------------------------------------------------

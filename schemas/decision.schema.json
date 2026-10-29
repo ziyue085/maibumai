@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/ziyue085/maibumai/schemas/decision.schema.json",
+  "title": "maibumai decision draft",
+  "description": "一次消费决策的草稿。mbm.py check 读它、校验它、解析结论；mbm.py log 写入账本。",
+  "type": "object",
+  "properties": {
+    "id": {"type": "string", "description": "留空则自动生成 YYYYMMDD-HHMM-xxxx"},
+    "level": {"type": "string", "enum": ["L1", "L2", "L3"], "description": "留空则按价格与品类自动判定"},
+    "as_of": {"type": "string", "description": "校验基准日 YYYY-MM-DD，默认今天。用于复现历史判断"},
+    "product": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "price": {"type": ["number", "null"], "description": "到手价，不是标价"},
+        "currency": {"type": "string", "default": "CNY"},
+        "category": {"type": "string", "description": "如 数码/耳机、家具/椅子、演出/门票"},
+        "period": {"type": "string", "enum": ["once", "month", "year"], "description": "订阅类填 month/year，用于年化"},
+        "url": {"type": "string"},
+        "spec": {"type": "string"},
+        "note": {"type": "string"}
+      },
+      "required": ["name"]
+    },
+    "reasons": {
+      "type": "array",
+      "minItems": 1,
+      "description": "规则码 + 具体依据。码表见 references/decision-rules.md",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {"type": "string"},
+          "note": {"type": "string", "description": "谁、多少、什么时候——写成别人能复核的一句话"}
+        },
+        "required": ["code"]
+      }
+    },
+    "alternative": {
+      "type": ["object", "null"],
+      "description": "建议替换方案时必填",
+      "properties": {
+        "name": {"type": "string"},
+        "price": {"type": ["number", "null"]},
+        "price_note": {"type": "string"},
+        "source": {"type": "string"},
+        "why": {"type": "string", "description": "满足了多少需求、牺牲了什么"}
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "description": "每条主张的来源、等级、观测日期。规则见 references/evidence-policy.md",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {"type": "string", "enum": ["price", "promo", "price_history", "spec", "review", "safety", "other"]},
+          "claim": {"type": "string"},
+          "value": {"type": ["number", "null"]},
+          "source_type": {"type": "string", "enum": ["official", "authorized_retail", "third_party", "user_provided", "ugc"]},
+          "url": {"type": "string"},
+          "observed_at": {"type": "string", "description": "YYYY-MM-DD"}
+        },
+        "required": ["kind", "claim", "source_type"]
+      }
+    },
+    "prediction": {
+      "type": "object",
+      "description": "对未来的预测，用于日后校准。宁可填得保守，不要填得漂亮。",
+      "properties": {
+        "uses_per_month": {"type": ["number", "null"]},
+        "months": {"type": ["number", "null"], "description": "预计持有月数"},
+        "satisfaction": {"type": ["integer", "null"], "minimum": 1, "maximum": 5}
+      }
+    },
+    "numbers": {"type": "object", "description": "由脚本计算，一般不用手填"},
+    "recheck_condition": {"type": "string", "description": "结论为暂缓时必填：什么时点或什么条件下重新判断"},
+    "override": {
+      "type": ["object", "null"],
+      "description": "人工驳回。只能在无硬拦截时生效，且会被记录",
+      "properties": {
+        "verdict": {"type": "string", "enum": ["BUY", "SWITCH", "DEFER", "DONT_BUY"]},
+        "reason": {"type": "string"}
+      }
+    },
+    "summary": {"type": "string", "description": "一句话结论，会参与废话与最高级表述检测"},
+    "notes": {"type": "string"}
+  },
+  "required": ["product", "reasons"]
+}

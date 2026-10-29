@@ -1,0 +1,173 @@
+{
+  "meta": {
+    "purpose": "结论解析层夹具。每条用例都对应一个真实会遇到的消费场景。",
+    "rule": "expect 是唯一正确答案；若解析器给出别的结论，说明优先级或规则表被改坏了。"
+  },
+  "cases": [
+    {
+      "id": "V01",
+      "name": "合理享受型：演唱会门票不得被劝退",
+      "scenario": "用户听了五年的乐队来本地开唱，票价 680，在月预算内",
+      "reasons": ["NEED_REAL", "EMOTIONAL_VALUE_LEGIT", "AFFORDABLE_WITHIN_BUDGET"],
+      "expect": "BUY",
+      "why": "情绪价值可命名、付得起、不重复。若判成暂缓，就是只会劝省钱。"
+    },
+    {
+      "id": "V02",
+      "name": "高价日用品但不奢侈：机械键盘",
+      "scenario": "程序员每天打字 8 小时，499 元的键盘，均摊 3 年",
+      "reasons": ["NEED_REAL", "SUBSTITUTE_INADEQUATE", "PRICE_FAIR", "AFFORDABLE_WITHIN_BUDGET", "LOW_REGRET_RISK"],
+      "expect": "BUY",
+      "why": "单价不低但使用频率极高，不能被'贵'一票否决。"
+    },
+    {
+      "id": "V03",
+      "name": "冲动消费：限时五折 + 已有同类",
+      "scenario": "刷到空气炸锅限时五折，家里那台半年没开",
+      "reasons": ["DUP_OWNED", "IMPULSE_SIGNAL"],
+      "expect": "DONT_BUY",
+      "why": "需求由折扣制造，且已有可用替代。"
+    },
+    {
+      "id": "V04",
+      "name": "重复购买：旧物仍可用",
+      "scenario": "已有降噪耳机状态良好，想再买一副新配色",
+      "reasons": ["DUP_OWNED"],
+      "expect": "DONT_BUY",
+      "why": "同功能重复持有，不是替换需求。"
+    },
+    {
+      "id": "V05",
+      "name": "替代方案：2680 元人体工学椅 vs 180 元腰靠",
+      "scenario": "久坐腰疼，但腰靠能解决主要问题",
+      "reasons": ["NEED_REAL", "SUBSTITUTE_ADEQUATE", "PRICE_ABOVE_FAIR"],
+      "alternative": {"name": "记忆棉腰靠 + 坐垫", "price": 180},
+      "expect": "SWITCH",
+      "why": "需求成立，但这个买法不成立——要给更便宜的具体路径。"
+    },
+    {
+      "id": "V06",
+      "name": "该换方案却没给出替代品",
+      "scenario": "判定'有更便宜路径'但说不出是什么",
+      "reasons": ["NEED_REAL", "SUBSTITUTE_ADEQUATE"],
+      "alternative": null,
+      "expect": "DEFER",
+      "why": "没有具体替代品的'换方案'等于空话，降级为暂缓。"
+    },
+    {
+      "id": "V07",
+      "name": "预算击穿：远超可支配预算",
+      "scenario": "月可支配 2000，要买 18000 的相机",
+      "reasons": ["NEED_REAL", "BUDGET_BREACH"],
+      "expect": "DONT_BUY",
+      "why": "预算硬约束优先于体验论证。"
+    },
+    {
+      "id": "V08",
+      "name": "预算紧张：需跨月支出",
+      "scenario": "月可支配 2000，买 2600 的显示器",
+      "reasons": ["NEED_REAL", "BUDGET_TIGHT"],
+      "expect": "DEFER",
+      "why": "不是买不起，是这个月买了要挤掉别的。"
+    },
+    {
+      "id": "V09",
+      "name": "价格过期",
+      "scenario": "拿着两个月前的截图问值不值",
+      "reasons": ["NEED_REAL", "PRICE_STALE"],
+      "expect": "DEFER",
+      "why": "旧价不能当现价，先重新取价。"
+    },
+    {
+      "id": "V10",
+      "name": "价格未核实",
+      "scenario": "只有商品名，查不到公开报价",
+      "reasons": ["NEED_REAL", "PRICE_UNVERIFIED"],
+      "expect": "DEFER",
+      "why": "不知道价格就无法判断'值不值'。"
+    },
+    {
+      "id": "V11",
+      "name": "信息不足",
+      "scenario": "只说'我想买个平板'，没有型号、预算、用途",
+      "reasons": ["INFO_GAP"],
+      "expect": "DEFER",
+      "why": "信息不足时给结论就是赌博；但暂缓必须带复查条件。"
+    },
+    {
+      "id": "V12",
+      "name": "骗局信号",
+      "scenario": "价格只有官网三分之一，要求私下转账",
+      "reasons": ["SCAM_SIGNAL"],
+      "expect": "DONT_BUY",
+      "why": "风险类硬拦截，不需要再讨论性价比。"
+    },
+    {
+      "id": "V13",
+      "name": "时机不对：换代在即",
+      "scenario": "官方已预告下月发新款，当前款原价",
+      "reasons": ["NEED_REAL", "TIMING_ADVERSE"],
+      "expect": "DEFER",
+      "why": "等三周可能省几百，等待成本极低。"
+    },
+    {
+      "id": "V14",
+      "name": "规格不匹配",
+      "scenario": "想剪 4K 视频，却看中 8G 内存的轻薄本",
+      "reasons": ["NEED_REAL", "SPEC_MISMATCH"],
+      "alternative": {"name": "同价位 32G 内存全能本", "price": 5499},
+      "expect": "SWITCH",
+      "why": "买错型号比买贵更常见。"
+    },
+    {
+      "id": "V15",
+      "name": "只有价格理由，没有需求锚点",
+      "scenario": "理由全是'便宜''划算'，没有一句'我为什么需要'",
+      "reasons": ["PRICE_FAIR", "AFFORDABLE_WITHIN_BUDGET"],
+      "expect": "DEFER",
+      "why": "折扣不是购买理由。缺锚点不得放行。"
+    },
+    {
+      "id": "V16",
+      "name": "空理由",
+      "scenario": "模型啥也没说就想给结论",
+      "reasons": [],
+      "expect": "DEFER",
+      "why": "无依据一律按信息不足处理，不得蒙。"
+    },
+    {
+      "id": "V17",
+      "name": "正向理由不能翻盘硬拦截",
+      "scenario": "既有硬拦截，又列了一堆优点",
+      "reasons": ["DUP_OWNED", "NEED_REAL", "PRICE_FAIR", "EMOTIONAL_VALUE_LEGIT", "LOW_REGRET_RISK"],
+      "expect": "DONT_BUY",
+      "why": "优先级固定，优点不能让'已有同类'失效。"
+    },
+    {
+      "id": "V18",
+      "name": "人工驳回不能绕过硬拦截",
+      "scenario": "用户说'我知道重复但我就要买'",
+      "reasons": ["DUP_OWNED"],
+      "override": {"verdict": "BUY", "reason": "用户坚持"},
+      "expect": "DONT_BUY",
+      "why": "驳回只允许在无硬拦截时使用；否则规则形同虚设。"
+    },
+    {
+      "id": "V19",
+      "name": "有硬拦截时人工驳回也不生效",
+      "scenario": "想用 override 直接买",
+      "reasons": ["SCAM_SIGNAL"],
+      "override": {"verdict": "BUY", "reason": "用户自己承担风险"},
+      "expect": "DONT_BUY",
+      "why": "诈骗风险不接受'我自己负责'。"
+    },
+    {
+      "id": "V20",
+      "name": "模式重复：同品类已多次闲置",
+      "scenario": "记录显示买过两个健身器材都闲置了",
+      "reasons": ["NEED_REAL", "PATTERN_REPEAT"],
+      "expect": "DONT_BUY",
+      "why": "用用户自己的历史数据反驳'这次会不一样'。"
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "meta": {
+    "purpose": "算术与分级夹具。只验证可推导的数字，不验证主观判断。"
+  },
+  "cases": [
+    {
+      "id": "C01",
+      "fn": "level_of",
+      "args": [29, "数码配件"],
+      "expect": {"level": "L1"}
+    },
+    {
+      "id": "C02",
+      "fn": "level_of",
+      "args": [2680, "家具/椅子"],
+      "expect": {"level": "L3"}
+    },
+    {
+      "id": "C03",
+      "fn": "level_of",
+      "args": [30, "视频会员"],
+      "kwargs": {"period": "month"},
+      "expect": {"level": "L2", "annual_cost": 360}
+    },
+    {
+      "id": "C04",
+      "fn": "cost_per_use",
+      "args": [399, 25, 60],
+      "expect": {"value": 0.27}
+    },
+    {
+      "id": "C05",
+      "fn": "cost_per_use",
+      "args": [399, null, 60],
+      "expect": {"value": null}
+    },
+    {
+      "id": "C06",
+      "fn": "budget_status",
+      "args": [18000, {"budget": {"discretionary_monthly": 2000}}],
+      "expect": {"status": "breach", "code": "BUDGET_BREACH"}
+    },
+    {
+      "id": "C07",
+      "fn": "budget_status",
+      "args": [2600, {"budget": {"discretionary_monthly": 2000}}],
+      "expect": {"status": "tight", "code": "BUDGET_TIGHT"}
+    },
+    {
+      "id": "C08",
+      "fn": "budget_status",
+      "args": [300, {}],
+      "expect": {"status": "unknown", "code": "INFO_GAP"}
+    },
+    {
+      "id": "C09",
+      "fn": "budget_share",
+      "args": [680, 2000],
+      "expect": {"value": 0.34}
+    },
+    {
+      "id": "C10",
+      "fn": "build_numbers",
+      "args": [680, 1, 1],
+      "kwargs": {"kind": "experience"},
+      "expect": {"cost_per_use": null}
+    },
+    {
+      "id": "C11",
+      "fn": "threshold_of",
+      "args": [{"budget": {"discretionary_monthly": 3000}}],
+      "expect": {"value": 300}
+    },
+    {
+      "id": "C12",
+      "fn": "threshold_of",
+      "args": [{"budget": {"discretionary_monthly": 8000}}],
+      "expect": {"value": 800}
+    },
+    {
+      "id": "C13",
+      "fn": "break_even_uses",
+      "args": [2680, 5],
+      "expect": {"value": 536}
+    },
+    {
+      "id": "C14",
+      "fn": "opportunity_cost",
+      "args": [680, [{"name": "旅行基金", "monthly": 500}]],
+      "expect": {"len": 1},
+      "why": "680/500 约 1.4 个月，说明这笔钱等于把旅行推后一个半月。"
+    },
+    {
+      "id": "C15",
+      "fn": "build_numbers",
+      "args": [30, null, 12],
+      "kwargs": {"kind": "subscription", "period": "month"},
+      "expect": {"annual_cost": 360, "cost_per_use": null},
+      "why": "月付 30 听起来便宜，一年是 360；不能按次摊，那是错的框架。"
+    }
+  ]
+}

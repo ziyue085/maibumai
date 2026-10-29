@@ -1,0 +1,212 @@
+{
+  "meta": {
+    "purpose": "输出审计夹具。检查结论是否自洽、是否具体、是否可核验。",
+    "legend": "expect_ok=true 表示零阻断（反向对照）；expect 中列出的 code 必须出现在 BLOCK 级发现里。"
+  },
+  "cases": [
+    {
+      "id": "A01",
+      "name": "暂缓但没有复查条件",
+      "expect_ok": false,
+      "expect": ["AUD_DEFER_NO_RECHECK"],
+      "decision": {
+        "verdict": "DEFER",
+        "level": "L2",
+        "product": {"name": "某平板", "price": 2499},
+        "reasons": [{"code": "IMPULSE_SIGNAL"}, {"code": "PRICE_UNVERIFIED"}]
+      },
+      "why": "'再想想'不是答案。暂缓必须说清什么条件下可以买。"
+    },
+    {
+      "id": "A02",
+      "name": "建议购买但价格只有用户口述",
+      "expect_ok": false,
+      "expect": ["AUD_PRICE_UNVERIFIED"],
+      "decision": {
+        "verdict": "BUY",
+        "level": "L2",
+        "product": {"name": "某耳机", "price": 899},
+        "reasons": [{"code": "NEED_REAL"}, {"code": "AFFORDABLE_WITHIN_BUDGET"}],
+        "evidence": [
+          {"kind": "price", "value": 899, "source_type": "user_provided", "observed_at": "2026-10-29"}
+        ]
+      },
+      "why": "口述价格可以用于暂缓，但不能用来断言'价格合理'。"
+    },
+    {
+      "id": "A03",
+      "name": "理由指向暂缓，结论却写建议购买",
+      "expect_ok": false,
+      "expect": ["AUD_TIER_CONFLICT"],
+      "decision": {
+        "verdict": "BUY",
+        "level": "L2",
+        "product": {"name": "某联名球鞋", "price": 1299},
+        "reasons": [{"code": "NEED_REAL"}, {"code": "IMPULSE_SIGNAL"}],
+        "evidence": [
+          {"kind": "price", "value": 1299, "source_type": "official", "url": "https://example.com/a", "observed_at": "2026-10-29"}
+        ]
+      },
+      "why": "自相矛盾是最常见的失败模式，必须结构上拦住。"
+    },
+    {
+      "id": "A04",
+      "name": "把判断推回给用户的废话",
+      "expect_ok": false,
+      "expect": ["AUD_VAGUE_PHRASE"],
+      "decision": {
+        "verdict": "DEFER",
+        "level": "L2",
+        "product": {"name": "某咖啡机", "price": 3200},
+        "summary": "这个主要看你自己，因人而异。",
+        "reasons": [{"code": "INFO_GAP"}, {"code": "PRICE_UNVERIFIED"}],
+        "recheck_condition": "补上型号与使用频率后再看"
+      },
+      "why": "用户要的是判断，不是被反问。"
+    },
+    {
+      "id": "A05",
+      "name": "无历史数据却说历史最低",
+      "expect_ok": false,
+      "expect": ["AUD_UNSUPPORTED_SUPERLATIVE"],
+      "decision": {
+        "verdict": "BUY",
+        "level": "L2",
+        "product": {"name": "某显示器", "price": 1499},
+        "summary": "这是历史最低价，可以入手。",
+        "reasons": [{"code": "NEED_REAL"}, {"code": "PRICE_FAIR"}],
+        "evidence": [
+          {"kind": "price", "value": 1499, "source_type": "official", "url": "https://example.com/b", "observed_at": "2026-10-28"}
+        ]
+      },
+      "why": "没有价格曲线就断言'历史最低'是编造。"
+    },
+    {
+      "id": "A06",
+      "name": "商品价与证据价不一致",
+      "expect_ok": false,
+      "expect": ["AUD_PRICE_MISMATCH"],
+      "decision": {
+        "verdict": "BUY",
+        "level": "L2",
+        "product": {"name": "某相机", "price": 1999},
+        "reasons": [{"code": "NEED_REAL"}, {"code": "PRICE_FAIR"}],
+        "evidence": [
+          {"kind": "price", "value": 2399, "source_type": "official", "url": "https://example.com/c", "observed_at": "2026-10-28"}
+        ]
+      },
+      "why": "两处价格差 20%，必须交代口径（是否含税/是否套装）。"
+    },
+    {
+      "id": "A07",
+      "name": "不建议购买却没有硬拦截理由",
+      "expect_ok": false,
+      "expect": ["AUD_DONTBUY_NO_BLOCK"],
+      "decision": {
+        "verdict": "DONT_BUY",
+        "level": "L2",
+        "product": {"name": "某露营天幕", "price": 780},
+        "reasons": [{"code": "INFO_GAP"}, {"code": "USAGE_IMPLAUSIBLE"}, {"code": "IMPULSE_SIGNAL"}]
+      },
+      "why": "'不建议买'必须有硬理由，不能凭感觉否决。"
+    },
+    {
+      "id": "A08",
+      "name": "使用了未定义的规则码",
+      "expect_ok": false,
+      "expect": ["AUD_REASON_UNKNOWN"],
+      "decision": {
+        "verdict": "DEFER",
+        "level": "L2",
+        "product": {"name": "某音箱", "price": 600},
+        "reasons": [{"code": "NEED_REAL"}, {"code": "FEELS_RISKY"}],
+        "recheck_condition": "看到实物后再定"
+      },
+      "why": "自由发挥的规则码会让整个判定体系失效。"
+    },
+    {
+      "id": "A09",
+      "name": "换方案但没说换成什么",
+      "expect_ok": false,
+      "expect": ["AUD_SWITCH_NO_ALT"],
+      "decision": {
+        "verdict": "SWITCH",
+        "level": "L2",
+        "product": {"name": "某品牌跑步机", "price": 4200},
+        "reasons": [{"code": "NEED_REAL"}, {"code": "SUBSTITUTE_ADEQUATE"}],
+        "alternative": {}
+      },
+      "why": "'有更好的选择'必须说出是哪个、多少钱。"
+    },
+    {
+      "id": "A10",
+      "name": "反向对照：完全合格的决策",
+      "expect_ok": true,
+      "expect": [],
+      "decision": {
+        "verdict": "BUY",
+        "level": "L2",
+        "product": {"name": "某品牌电饭煲 3L", "price": 399, "category": "家电/厨电"},
+        "reasons": [
+          {"code": "NEED_REAL", "note": "旧的坏了，每天做饭"},
+          {"code": "DURABILITY_GAIN", "note": "预期使用 5 年"},
+          {"code": "PRICE_FAIR", "note": "三家自营报价 379-419"}
+        ],
+        "evidence": [
+          {"kind": "price", "value": 399, "source_type": "authorized_retail", "url": "https://example.com/d", "observed_at": "2026-10-28"},
+          {"kind": "review", "claim": "评测提到内胆涂层耐用", "source_type": "ugc", "url": "https://example.com/e", "observed_at": "2026-09-01"}
+        ],
+        "prediction": {"uses_per_month": 25, "months": 60}
+      },
+      "why": "合格输入必须零阻断零警告，否则检查器就是一律拦截，等于没有判断力。"
+    },
+    {
+      "id": "A11",
+      "name": "证据过期却仍给出建议购买",
+      "expect_ok": false,
+      "expect": ["AUD_EVIDENCE_BLOCKING"],
+      "decision": {
+        "verdict": "BUY",
+        "level": "L2",
+        "product": {"name": "某显卡", "price": 3299, "category": "数码/电脑"},
+        "reasons": [{"code": "NEED_REAL"}, {"code": "PRICE_FAIR"}],
+        "evidence": [
+          {"kind": "price", "value": 3299, "source_type": "authorized_retail", "url": "https://example.com/f", "observed_at": "2026-06-01"}
+        ],
+        "as_of": "2026-10-29"
+      },
+      "why": "半年前的价格不能支撑今天的'价格合理'。"
+    },
+    {
+      "id": "A12",
+      "name": "单次成本缺少推导输入",
+      "expect_ok": false,
+      "expect": ["AUD_NUMBER_UNSUPPORTED"],
+      "decision": {
+        "verdict": "DEFER",
+        "level": "L2",
+        "product": {"name": "某投影仪", "price": 2699},
+        "reasons": [{"code": "INFO_GAP"}, {"code": "PRICE_UNVERIFIED"}],
+        "numbers": {"cost_per_use": 12.5},
+        "recheck_condition": "确认每周使用次数后再算"
+      },
+      "why": "没有价格与频率就算出单次成本，必是编的。"
+    },
+    {
+      "id": "A13",
+      "name": "只有一条理由就下结论",
+      "expect_ok": false,
+      "expect": ["AUD_REASONS_FEW"],
+      "decision": {
+        "verdict": "BUY",
+        "level": "L2",
+        "product": {"name": "某台灯", "price": 399, "category": "家居"},
+        "reasons": [{"code": "NEED_REAL"}],
+        "evidence": [
+          {"kind": "price", "value": 399, "source_type": "authorized_retail", "url": "https://example.com/k", "observed_at": "2026-10-28"}
+        ]
+      },
+      "why": "一条理由的结论不可复盘，也无法判断是否漏掉了关键因素。"
+    }
+  ]
+}

@@ -1,0 +1,130 @@
+{
+  "meta": {
+    "purpose": "证据层夹具。检查来源等级、时效、日期越界、价格冲突。",
+    "note": "as_of 固定为 2026-10-29，保证测试不随真实日期漂移。"
+  },
+  "cases": [
+    {
+      "id": "E01",
+      "name": "完全没有证据",
+      "items": [],
+      "args": {"as_of": "2026-10-29"},
+      "expect": ["EV_NONE", "EV_MISSING_KIND"],
+      "expect_ok": false,
+      "why": "EV_NONE 本身只是警告（暂缓可以没有证据），真正阻断的是'要求价格却拿不出来'。"
+    },
+    {
+      "id": "E02",
+      "name": "电子品类价格过期 70 天",
+      "items": [
+        {"kind": "price", "claim": "1999", "value": 1999, "source_type": "third_party", "url": "https://example.com/p", "observed_at": "2026-08-20"}
+      ],
+      "args": {"as_of": "2026-10-29", "price_class": "fast"},
+      "expect": ["EV_STALE"],
+      "expect_ok": false
+    },
+    {
+      "id": "E03",
+      "name": "观测日期在未来",
+      "items": [
+        {"kind": "price", "claim": "999", "value": 999, "source_type": "official", "url": "https://example.com/p", "observed_at": "2027-01-01"}
+      ],
+      "args": {"as_of": "2026-10-29"},
+      "expect": ["EV_FUTURE_DATE"],
+      "expect_ok": false
+    },
+    {
+      "id": "E04",
+      "name": "第三方价格没有链接",
+      "items": [
+        {"kind": "price", "claim": "1599", "value": 1599, "source_type": "third_party", "observed_at": "2026-10-28"}
+      ],
+      "args": {"as_of": "2026-10-29"},
+      "expect": ["EV_NO_SOURCE"],
+      "expect_ok": false
+    },
+    {
+      "id": "E05",
+      "name": "用户口述价格，无链接（不阻断）",
+      "items": [
+        {"kind": "price", "claim": "大概 800 多", "value": 820, "source_type": "user_provided", "observed_at": "2026-10-29"}
+      ],
+      "args": {"as_of": "2026-10-29", "required_kinds": []},
+      "expect": ["EV_NO_SOURCE"],
+      "expect_ok": true,
+      "why": "口述价格允许存在，但只能是 WARN，并且不足以支撑'价格合理'的结论。"
+    },
+    {
+      "id": "E06",
+      "name": "两个来源价差 30%",
+      "items": [
+        {"kind": "price", "claim": "1299", "value": 1299, "source_type": "official", "url": "https://example.com/a", "observed_at": "2026-10-28"},
+        {"kind": "price", "claim": "999", "value": 999, "source_type": "third_party", "url": "https://example.com/b", "observed_at": "2026-10-28"}
+      ],
+      "args": {"as_of": "2026-10-29"},
+      "expect": ["EV_CONFLICT"],
+      "expect_ok": true,
+      "why": "冲突是警告不是阻断：须说明差异来源，不得取平均。"
+    },
+    {
+      "id": "E07",
+      "name": "要求价格但只有口碑",
+      "items": [
+        {"kind": "review", "claim": "好评较多", "source_type": "ugc", "url": "https://example.com/r", "observed_at": "2026-09-01"}
+      ],
+      "args": {"as_of": "2026-10-29", "required_kinds": ["price"]},
+      "expect": ["EV_MISSING_KIND"],
+      "expect_ok": false
+    },
+    {
+      "id": "E08",
+      "name": "链接不是 http(s)",
+      "items": [
+        {"kind": "price", "claim": "599", "value": 599, "source_type": "authorized_retail", "url": "javascript:alert(1)", "observed_at": "2026-10-28"}
+      ],
+      "args": {"as_of": "2026-10-29"},
+      "expect": ["EV_BAD_URL"],
+      "expect_ok": false
+    },
+    {
+      "id": "E09",
+      "name": "反向对照：干净的官方报价",
+      "items": [
+        {"kind": "price", "claim": "399", "value": 399, "source_type": "authorized_retail", "url": "https://example.com/g", "observed_at": "2026-10-28"}
+      ],
+      "args": {"as_of": "2026-10-29", "required_kinds": ["price"]},
+      "expect": [],
+      "expect_ok": true
+    },
+    {
+      "id": "E10",
+      "name": "促销价超过 3 天",
+      "items": [
+        {"kind": "promo", "claim": "到手 899", "value": 899, "source_type": "authorized_retail", "url": "https://example.com/h", "observed_at": "2026-10-24"}
+      ],
+      "args": {"as_of": "2026-10-29"},
+      "expect": ["EV_STALE"],
+      "expect_ok": false
+    },
+    {
+      "id": "E11",
+      "name": "缺失观测日期",
+      "items": [
+        {"kind": "price", "claim": "1299", "value": 1299, "source_type": "official", "url": "https://example.com/i"}
+      ],
+      "args": {"as_of": "2026-10-29"},
+      "expect": ["EV_NO_DATE"],
+      "expect_ok": false
+    },
+    {
+      "id": "E12",
+      "name": "未知来源类型按最低可信度处理",
+      "items": [
+        {"kind": "price", "claim": "88", "value": 88, "source_type": "friend_told_me", "url": "https://example.com/j", "observed_at": "2026-10-28"}
+      ],
+      "args": {"as_of": "2026-10-29"},
+      "expect": ["EV_BAD_SOURCE"],
+      "expect_ok": true
+    }
+  ]
+}

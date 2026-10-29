@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/ziyue085/maibumai/schemas/owned.schema.json",
+  "title": "maibumai owned items",
+  "description": "已有物品档案。condition 直接决定'重复购买'是否成立：good/worn 才算还能用。",
+  "type": "object",
+  "properties": {
+    "schema_version": {"type": "integer"},
+    "updated_at": {"type": ["string", "null"]},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string", "minLength": 1},
+          "category": {"type": "string"},
+          "acquired": {"type": ["string", "null"], "description": "YYYY-MM"},
+          "price": {"type": ["number", "null"]},
+          "condition": {
+            "type": "string",
+            "enum": ["good", "worn", "failing", "broken", "gone"],
+            "description": "good=良好 worn=有磨损仍可用 failing=勉强能用 broken=已坏 gone=已处理"
+          },
+          "satisfaction": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+          "notes": {"type": "string"}
+        },
+        "required": ["name", "condition"]
+      }
+    }
+  },
+  "required": ["items"]
+}

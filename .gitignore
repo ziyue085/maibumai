@@ -1,0 +1,23 @@
+# 个人数据绝不入仓库（第一道防线；第二道是数据目录本身在仓库之外）
+.maibumai/
+data/
+*.local.json
+decisions.jsonl
+profile.json
+owned.json
+review.json
+draft.json
+
+# 运行产物
+__pycache__/
+*.pyc
+*.pyo
+.tmp/
+tests/last-run.txt
+*.tmp
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

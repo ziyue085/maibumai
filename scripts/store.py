@@ -280,6 +280,8 @@ def read_events() -> list:
     if bad:
         # 不静默吞掉损坏：把计数挂在函数属性上供 doctor 读取
         read_events.last_corrupt_lines = bad
+    else:
+        read_events.last_corrupt_lines = 0
     return events
 
 

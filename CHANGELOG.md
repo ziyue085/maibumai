@@ -17,7 +17,7 @@
 
 ### 测试
 
-- 规则夹具 59 条（verdict 20 / audit 13 / evidence 12 / calc 14），全部通过。
+- 规则夹具 61 条（verdict 20 / audit 13 / evidence 13 / calc 15），全部通过。
 - 变异测试 10 个，全部被捕获。
 - 端到端冒烟 15 步，全部通过。
 

@@ -55,6 +55,12 @@
           "kind": {"type": "string", "enum": ["price", "promo", "price_history", "spec", "review", "safety", "other"]},
           "claim": {"type": "string"},
           "value": {"type": ["number", "null"]},
+          "subject": {
+            "type": "string",
+            "enum": ["target", "reference"],
+            "default": "target",
+            "description": "target=被评估商品本身；reference=用来比价的参照商品（不参与价格冲突检测）"
+          },
           "source_type": {"type": "string", "enum": ["official", "authorized_retail", "third_party", "user_provided", "ugc"]},
           "url": {"type": "string"},
           "observed_at": {"type": "string", "description": "YYYY-MM-DD"}

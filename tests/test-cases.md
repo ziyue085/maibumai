@@ -18,8 +18,8 @@
 |---|---|---|---|
 | verdict | `cases/verdict_cases.json` | 规则码 → 结论是否正确 | 20 |
 | audit | `cases/audit_cases.json` | 输出是否自洽、具体、可核验 | 13 |
-| evidence | `cases/evidence_cases.json` | 来源、时效、冲突、日期越界 | 12 |
-| calc | `cases/calc_cases.json` | 算术与分级 | 14 |
+| evidence | `cases/evidence_cases.json` | 来源、时效、冲突、日期越界 | 13 |
+| calc | `cases/calc_cases.json` | 算术与分级 | 15 |
 
 ## 三、重点用例
 

@@ -55,6 +55,22 @@
 
 `product.price` 与证据 `value` 相差超过 5% 会被审计判为 `AUD_PRICE_MISMATCH`——这时要交代口径差异，不是改数字。
 
+### `subject`：区分"这个商品"和"用来比价的商品"
+
+比价是判断的核心动作，但**品牌款 2680 与国产同类 1280 不是"价格冲突"，那正是"贵不贵"的结论本身**。
+
+所以价格证据要标 `subject`：
+
+- `target`（默认）——被评估商品本身的价格。同一商品多个来源不一致，才是冲突。
+- `reference`——用来比价的参照商品。不参与冲突检测，也不参与 `product.price` 的口径核对。
+
+```json
+{"kind":"price","claim":"旗舰店 2680","value":2680,"source_type":"official",...}
+{"kind":"price","claim":"同规格国产 1280","value":1280,"subject":"reference",...}
+```
+
+漏标 `reference` 会导致大量误报，最终让人忽略警告——比没有警告更糟。
+
 ---
 
 ## 四、来源冲突

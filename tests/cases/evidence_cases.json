@@ -125,6 +125,18 @@
       "args": {"as_of": "2026-10-29"},
       "expect": ["EV_BAD_SOURCE"],
       "expect_ok": true
+    },
+    {
+      "id": "E13",
+      "name": "品牌款与国产同类的价差不是「价格冲突」",
+      "items": [
+        {"kind": "price", "claim": "旗舰店 2680", "value": 2680, "source_type": "official", "url": "https://example.com/c1", "observed_at": "2026-10-27"},
+        {"kind": "price", "claim": "同规格国产 1280", "value": 1280, "subject": "reference", "source_type": "authorized_retail", "url": "https://example.com/c2", "observed_at": "2026-10-26"}
+      ],
+      "args": {"as_of": "2026-10-29", "required_kinds": ["price"]},
+      "expect": [],
+      "expect_ok": true,
+      "why": "这是「这个品牌贵不贵」的证据，正是 PRICE_ABOVE_FAIR 的依据；当成冲突会把它误杀。"
     }
   ]
 }

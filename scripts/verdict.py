@@ -276,7 +276,11 @@ def audit(decision, evidence_result=None):
     ev = evidence_result or {}
     if verdict in ("BUY", "SWITCH"):
         price_items = [
-            e for e in evidence if isinstance(e, dict) and e.get("kind") in ("price", "promo")
+            e
+            for e in evidence
+            if isinstance(e, dict)
+            and e.get("kind") in ("price", "promo")
+            and str(e.get("subject") or "target").strip().lower() == "target"
         ]
         if not price_items:
             findings.append(_finding("AUD_NO_PRICE_EVIDENCE", "BLOCK", "购买类结论必须附价格证据"))
@@ -300,7 +304,9 @@ def audit(decision, evidence_result=None):
         ev_prices = [
             e.get("value")
             for e in evidence
-            if e.get("kind") in ("price", "promo") and isinstance(e.get("value"), (int, float))
+            if e.get("kind") in ("price", "promo")
+            and str(e.get("subject") or "target").strip().lower() == "target"
+            and isinstance(e.get("value"), (int, float))
         ]
         if ev_prices:
             near = [p for p in ev_prices if stated and abs(p - stated) / max(stated, 1) <= 0.05]
@@ -308,7 +314,7 @@ def audit(decision, evidence_result=None):
                 findings.append(
                     _finding(
                         "AUD_PRICE_MISMATCH",
-                        "BLOCK",
+                        "BLOCK" if verdict in ("BUY", "SWITCH") else "WARN",
                         f"商品价格 {stated} 与证据价格 {ev_prices} 不一致（>5%），须说明口径",
                         {"stated": stated, "evidence": ev_prices},
                     )

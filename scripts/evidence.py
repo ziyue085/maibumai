@@ -176,7 +176,12 @@ def check(items, as_of=None, price_class="durable", required_kinds=("price",)):
                 )
             value = item.get("value")
             if isinstance(value, (int, float)):
-                price_points.append((value, tier, observed_date))
+                # subject 区分"被评估的商品"与"用来比价的参照商品"，
+                # 否则品牌款 2680 与国产同类 1280 会被误判成同款价格冲突。
+                subject = str(item.get("subject") or "target").strip().lower()
+                price_points.append(
+                    {"value": value, "tier": tier, "date": observed_date, "subject": subject}
+                )
 
             if src == "ugc":
                 findings.append(
@@ -211,16 +216,20 @@ def check(items, as_of=None, price_class="durable", required_kinds=("price",)):
                 _finding("EV_MISSING_KIND", "BLOCK", f"缺少 {kind} 类证据：无法支撑涉及价格的结论")
             )
 
-    if len(price_points) >= 2:
-        values = [p[0] for p in price_points if p[0] > 0]
+    # 只在"同一个商品"内部比价，跨商品比较不是冲突，是比价结论本身
+    by_subject: dict = {}
+    for p in price_points:
+        by_subject.setdefault(p["subject"], []).append(p)
+    for subj, points in by_subject.items():
+        values = [p["value"] for p in points if p["value"] > 0]
         if len(values) >= 2 and max(values) / min(values) - 1 > _PRICE_CONFLICT_RATIO:
             findings.append(
                 _finding(
                     "EV_CONFLICT",
                     "WARN",
-                    f"多个来源价差 {(max(values)/min(values)-1)*100:.0f}%，超过 "
+                    f"同一商品在多个来源价差 {(max(values)/min(values)-1)*100:.0f}%，超过 "
                     f"{int(_PRICE_CONFLICT_RATIO*100)}%：不得取平均，须说明差异并采信最高等级来源",
-                    {"values": values, "tiers": [p[1] for p in price_points]},
+                    {"subject": subj, "values": values},
                 )
             )
 
@@ -234,10 +243,15 @@ def check(items, as_of=None, price_class="durable", required_kinds=("price",)):
 
 
 def best_price(items):
-    """取可信度最高、时间最新的价格。全部不合格则返回 None——不猜。"""
+    """取可信度最高、时间最新的价格。全部不合格则返回 None——不猜。
+
+    只考虑 subject 为 target（被评估商品本身）的价格，参照商品的价格不参与。
+    """
     best = None
     for item in items or []:
         if item.get("kind") not in PRICE_KINDS:
+            continue
+        if str(item.get("subject") or "target").strip().lower() != "target":
             continue
         value = item.get("value")
         if not isinstance(value, (int, float)):

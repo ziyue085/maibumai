@@ -97,7 +97,7 @@ python scripts/mbm.py stats                       # 闲置率 / 高估倍数
 ## 测试
 
 ```bash
-python tests/run_regression.py     # 59 条规则夹具
+python tests/run_regression.py     # 61 条规则夹具
 python tests/mutation_check.py     # 10 个变异，验证夹具不是空转
 python tests/run_cli_smoke.py      # 15 步端到端生命周期
 ```

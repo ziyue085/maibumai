@@ -52,8 +52,14 @@ def _load_input(path: str | None) -> dict:
     if not path or path == "-":
         raw = sys.stdin.read()
     else:
-        raw = Path(path).read_text(encoding="utf-8")
-    data = json.loads(raw)
+        p = Path(path).expanduser()
+        if not p.is_file():
+            raise SystemExit(f"找不到输入文件：{p}\n提示：用 --input 指定 JSON 草稿路径，或传 - 从标准输入读。")
+        raw = p.read_text(encoding="utf-8")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"输入不是合法 JSON：{exc}\n行 {exc.lineno} 列 {exc.colno}")
     if not isinstance(data, dict):
         raise SystemExit("输入必须是 JSON 对象")
     return data

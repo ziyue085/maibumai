@@ -81,11 +81,19 @@ def _append_findings(result: dict, findings) -> None:
     result["ok"] = result["blocking"] == 0
 
 
-def _alt_price_problem(items, converted, as_of, price_class) -> str | None:
-    """替代品报价的出处是否站得住。返回问题码，None 表示合格。
+def _alt_price_check(items, converted, as_of, price_class) -> dict:
+    """替代品报价的出处是否站得住，以及**核实到哪一层**。
 
-    一条报价要同时满足四件事才算有据：**价格对得上、来源够硬、有可点开的链接、
-    日期在保鲜期内**。只对得上价格不算——"朋友说 600"也能对得上。
+    三层，逐层加严，不要混为一谈：
+
+    | 等级 | 含义 | 谁做的 |
+    |---|---|---|
+    | `structural` | 有链接，格式像 URL | 本函数（正则） |
+    | `source` | 来源等级 ≤ 3（官方/授权/专业站），且在保鲜期内 | 本函数（查字段） |
+    | `page` | 另外填了 ``page_price``，且与引用价一致 | 取证方读页面，本函数只做减法 |
+
+    ``page`` 级才叫"页面核对过"。前两级只能证明"这个价有个看得过去的出处"，
+    **不能**证明链接打得开、域名是官方、页面写着这个数。
     """
     candidates = [
         e for e in items or []
@@ -96,24 +104,29 @@ def _alt_price_problem(items, converted, as_of, price_class) -> str | None:
         and abs(e["value"] - converted) / converted <= 0.05
     ]
     if not candidates:
-        return "ALT_PRICE_UNVERIFIED"
+        return {"problem": "ALT_PRICE_UNVERIFIED", "verified": None}
 
+    # 用户口述 / 内容社区：可以作线索，不能作依据
     best_tier = min(ev.SOURCE_TIERS.get(str(e.get("source_type") or ""), 5) for e in candidates)
     if best_tier > 3:
-        # 用户口述 / 内容社区：可以作线索，不能作依据
-        return "ALT_PRICE_WEAK_SOURCE"
+        return {"problem": "ALT_PRICE_WEAK_SOURCE", "verified": None}
 
-    linked = [e for e in candidates if ev.valid_url(e.get("url"))]
+    linked = [e for e in candidates if ev.url_syntax_ok(e.get("url"))]
     if not linked:
-        return "ALT_PRICE_UNVERIFIED"
+        return {"problem": "ALT_PRICE_UNVERIFIED", "verified": None}
 
     fresh = [
         e for e in linked
         if ev.item_freshness(e.get("kind"), e.get("observed_at"), as_of, price_class)[0]
     ]
     if not fresh:
-        return "ALT_PRICE_STALE"
-    return None
+        return {"problem": "ALT_PRICE_STALE", "verified": None}
+
+    if any(ev.quote_content_problem(e) for e in fresh):
+        return {"problem": "ALT_PRICE_CONTENT_MISMATCH", "verified": None}
+
+    sniffed = any(isinstance(e.get("page_price"), (int, float)) for e in fresh)
+    return {"problem": None, "verified": "page" if sniffed else "source"}
 
 
 def _assess_alternative(alt_raw, product, profile, items, base, as_of) -> dict:
@@ -144,6 +157,7 @@ def _assess_alternative(alt_raw, product, profile, items, base, as_of) -> dict:
         problems.append("ALT_PERIOD_MISSING")
 
     budget = None
+    verified_level = None
     if isinstance(converted, (int, float)) and converted > 0:
         budget_price, monthly = converted, None
         if alt_kind == "subscription":
@@ -169,10 +183,11 @@ def _assess_alternative(alt_raw, product, profile, items, base, as_of) -> dict:
             if share is None or share > ESTIMATE_TOLERANCE:
                 problems.append("ALT_BUDGET_UNKNOWN")
 
-        problem = _alt_price_problem(items, converted, as_of,
-                                     calc.price_class(product.get("category")))
-        if problem:
-            problems.append(problem)
+        price_check = _alt_price_check(items, converted, as_of,
+                                       calc.price_class(product.get("category")))
+        if price_check["problem"]:
+            problems.append(price_check["problem"])
+        verified_level = price_check["verified"]
 
     return {
         "name": alt.get("name"),
@@ -184,6 +199,7 @@ def _assess_alternative(alt_raw, product, profile, items, base, as_of) -> dict:
         "period_missing": period_missing,
         "source": alt.get("source"),
         "budget": budget,
+        "price_verified": verified_level,
         "annual_cost": calc.annual_of(converted, alt_period)
         if (alt_kind == "subscription" and isinstance(converted, (int, float))) else None,
         "problems": problems,
@@ -195,6 +211,9 @@ def _assess_alternative(alt_raw, product, profile, items, base, as_of) -> dict:
 
 #: 证据层的阻断码 → 结论层应该用的理由码。
 #: 目标价格站不住时，不该输出"买这个/换成这个"——比较的基础本身就不成立。
+#: 输入价与证据价的可接受偏差。超过就是两个不同的数字，不是"口径小差异"。
+PRICE_MISMATCH_TOLERANCE = 0.05
+
 PRICE_DEFECT_CODES = {
     "EV_STALE": "PRICE_STALE",
     "EV_NO_DATE": "PRICE_STALE",
@@ -204,15 +223,31 @@ PRICE_DEFECT_CODES = {
     "EV_NO_SOURCE_TYPE": "PRICE_UNVERIFIED",
     "EV_PRICE_VALUE_INVALID": "PRICE_UNVERIFIED",
     "EV_CURRENCY_UNCONVERTED": "PRICE_UNVERIFIED",
+    "EV_BAD_DATE": "PRICE_STALE",
+    "EV_QUOTE_CONTENT_MISMATCH": "PRICE_UNVERIFIED",
 }
 
 
-def _target_price_defect(ev_result, items, best_tier) -> dict | None:
+def _target_price_defect(ev_result, items, price, target_prices) -> dict | None:
     """目标商品的价格证据有没有硬伤。有就返回该用的理由码。
 
     只看 ``subject=target`` 的价格类证据：替代品的证据缺陷由替代品自己承担，
     不能拿它去否决目标商品的结论。
+
+    四类硬伤，任何一类都让"买这个/换成这个"失去前提：
+
+    1. **根本没有报价**——`EV_MISSING_KIND` 不带证据索引，不能靠遍历 findings 发现；
+    2. 报价自身不成立（过期、无日期、未来日期、无链接、数值非法、页面价自相矛盾）；
+    3. 来源只有口述或社区（等级 > 3）；
+    4. 输入价与证据价相差超过 5%——两个数字里必有一个是错的。
     """
+    if not target_prices:
+        return {
+            "code": "PRICE_UNVERIFIED",
+            "why": "没有任何目标商品的价格证据：现有的价只是转述，不是核实过的报价",
+            "from": "NO_PRICE_EVIDENCE",
+        }
+
     for f in ev_result.get("findings") or []:
         if f.get("severity") != "BLOCK":
             continue
@@ -227,10 +262,32 @@ def _target_price_defect(ev_result, items, best_tier) -> dict | None:
         code = PRICE_DEFECT_CODES.get(f.get("code"))
         if code:
             return {"code": code, "why": f["message"], "from": f["code"]}
-    if best_tier is not None and best_tier > 3:
+
+    best_tier = min(
+        (ev.SOURCE_TIERS.get(str(e.get("source_type") or ""), 5) for e in target_prices),
+        default=5,
+    )
+    if best_tier > 3:
         return {"code": "PRICE_UNVERIFIED",
                 "why": "价格只有用户口述或社区来源，不能据此断言价格合理",
                 "from": "SOURCE_TIER"}
+
+    for e in target_prices:
+        if ev.quote_content_problem(e):
+            return {"code": "PRICE_UNVERIFIED",
+                    "why": (f"证据里的价格 {e.get('value')} 与页面上看到的 "
+                            f"{e.get('page_price')} 对不上"),
+                    "from": "QUOTE_CONTENT"}
+
+    if isinstance(price, (int, float)) and price > 0:
+        values = [float(e["value"]) for e in target_prices]
+        if not any(abs(v - price) / price <= PRICE_MISMATCH_TOLERANCE for v in values):
+            return {
+                "code": "PRICE_UNVERIFIED",
+                "why": f"你给的 {price} 元与查到的报价 {values} 相差超过 5%，"
+                       "两个数里必有一个不对，先确认哪个是到手价",
+                "from": "PRICE_MISMATCH",
+            }
     return None
 
 
@@ -381,6 +438,7 @@ def _evaluate(draft: dict, profile: dict, owned=None) -> dict:
         as_of=as_of,
         price_class=calc.price_class(product.get("category")),
         required_kinds=("price",) if (verdict in ("BUY", "SWITCH") and level != "L1") else (),
+        base=base,
     )
     if currency_findings:
         _append_findings(ev_result, currency_findings)
@@ -395,11 +453,7 @@ def _evaluate(draft: dict, profile: dict, owned=None) -> dict:
             and str(e.get("subject") or "target").strip().lower() == "target"
             and isinstance(e.get("value"), (int, float))
         ]
-        best_tier = min(
-            (ev.SOURCE_TIERS.get(str(e.get("source_type") or ""), 5) for e in target_prices),
-            default=None,
-        )
-        price_defect = _target_price_defect(ev_result, items, best_tier)
+        price_defect = _target_price_defect(ev_result, items, price, target_prices)
         if price_defect:
             reasons = [r for r in reasons if r["code"] != "AFFORDABLE_WITHIN_BUDGET"]
             enforced_codes = [c for c in enforced_codes if c != "AFFORDABLE_WITHIN_BUDGET"]

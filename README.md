@@ -40,6 +40,12 @@ v0.5 把这条推到边界上：**存量未知不等于存量为零**（不能�
 **L2 与 L3 一样要求财务可信**（只有百元以下的快判豁免），
 **替代品报价必须有公开出处**（口述、社区、过期、无链接一律不算）。
 
+v0.6 往前推了一格：**没有报价证据就没有结论**。一条报价都没有 → 暂缓；
+目标价不可信 → 压过"换方案"，不让你换个方案绕过；
+口述汇率 → 不参与任何计算；输入价与可信报价差 5% 以上 → 暂缓，不是照旧算完只拦落账；
+画像迁移的旧数字一律标"待确认"，不替用户确认。
+另外拆清楚一件事：**链接长得像网址 ≠ 来源可信 ≠ 页面上的价就是你引用的价**。
+
 ### 2. 财务判断分成六层，且是强制的
 
 存量与现金流必须分开——把两者混在一起，就会得出"月入 800 不能买 4000 的东西"这种荒谬结论。
@@ -146,9 +152,9 @@ python $M due / stats / export / doctor
 ## 测试
 
 ```bash
-python tests/run_regression.py     # 166 条规则夹具（7 层）
-python tests/mutation_check.py     # 39 个变异，验证夹具不是空转
-python tests/run_cli_smoke.py      # 36 步端到端生命周期
+python tests/run_regression.py     # 179 条规则夹具（8 层）
+python tests/mutation_check.py     # 47 个变异，验证夹具不是空转
+python tests/run_cli_smoke.py      # 41 步端到端生命周期
 python tests/windows_case_check.py # 11 项 Windows 关键路径（中文路径 / 编码 / 账本）
 python tests/check_repo.py         # 仓库自检：无个人数据指纹、JSON/Python、版本号
 ```

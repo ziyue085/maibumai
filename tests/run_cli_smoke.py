@@ -90,6 +90,18 @@ EXPENSIVE = {
     "prediction": {"uses_per_month": 4, "months": 60},
 }
 
+NO_PRICE = {
+    "product": {"name": "某品牌耳机", "price": 900, "category": "数码/耳机"},
+    "reasons": [
+        {"code": "NEED_REAL", "note": "旧耳机降噪失效已三个月"},
+        {"code": "PRICE_FAIR", "note": "店里看到就是这个价"},
+        {"code": "LOW_REGRET_RISK", "note": "支持七天无理由退货"},
+    ],
+    # 故意一条价格证据都不给：只有转述，没有核实的报价
+    "evidence": [],
+    "recheck_condition": "查到公开报价后重新判断",
+}
+
 FOREIGN = {
     "product": {"name": "某耳机", "price": 899, "currency": "USD", "category": "数码/耳机"},
     "reasons": [
@@ -173,6 +185,21 @@ def main() -> int:
                       for f in usd["result"]["gates"]["integrity"]["findings"]),
                   usd["result"]["gates"]["integrity"])
 
+        # 关键回归：一条报价都没有时，结论是暂缓并可落账（不是「买了别记账」）
+        np_path = ctx.write("no-price.json", NO_PRICE)
+        np_res = ctx.json("judge", "--input", np_path)
+        ctx.check("没有报价时结论为暂缓",
+                  np_res["result"]["verdict"]["verdict"] == "DEFER",
+                  np_res["result"]["verdict"])
+        ctx.check("暂缓理由来自价格缺失（PRICE_UNVERIFIED）",
+                  "PRICE_UNVERIFIED" in (np_res["result"]["verdict"]["enforced"] or []),
+                  np_res["result"]["verdict"]["enforced"])
+        ctx.check("没有报价时仍可落账（ok=True）", np_res["result"]["ok"] is True,
+                  np_res["result"]["blocking"])
+        ctx.check("落账记录里没有把「在预算内」写上",
+                  "AFFORDABLE_WITHIN_BUDGET" not in (np_res["result"]["verdict"]["enforced"] or []),
+                  np_res["result"]["verdict"]["enforced"])
+
         ctx.json("outcome", did, "--bought", "yes")
         review_path = ctx.write("review.json", {
             "actual": {"uses_per_month": 0.5, "satisfaction": 2,
@@ -181,7 +208,9 @@ def main() -> int:
         ctx.json("review", did, "--input", review_path)
 
         st = ctx.json("stats")
-        ctx.check("统计覆盖 2 笔决策", st["decisions"] == 2, st)
+        ctx.check("统计覆盖 3 笔决策", st["decisions"] == 3, st)
+        ctx.check("暂缓也计入统计（不是只统计买过的）",
+                  st["by_verdict"].get("DEFER") == 1, st["by_verdict"])
         ctx.check("统计覆盖 1 条复盘", st["reviewed"] == 1, st)
         ctx.check("识别为闲置", st["idle_rate"] == 1.0, st)
         ctx.check("追踪后悔支出", st["regret_spend"] == 899, st)

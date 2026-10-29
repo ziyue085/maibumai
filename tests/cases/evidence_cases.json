@@ -9,8 +9,13 @@
       "id": "E01",
       "name": "完全没有证据",
       "items": [],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_NONE", "EV_MISSING_KIND"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_NONE",
+        "EV_MISSING_KIND"
+      ],
       "expect_ok": false,
       "why": "EV_NONE 只是警告（暂缓可以没有证据），真正阻断的是『要求价格却拿不出来』。"
     },
@@ -18,41 +23,87 @@
       "id": "E02",
       "name": "电子品类价格过期 70 天",
       "items": [
-        {"kind": "price", "claim": "1999", "value": 1999, "source_type": "third_party", "url": "https://example.com/p", "observed_at": "2026-08-20"}
+        {
+          "kind": "price",
+          "claim": "1999",
+          "value": 1999,
+          "source_type": "third_party",
+          "url": "https://example.com/p",
+          "observed_at": "2026-08-20"
+        }
       ],
-      "args": {"as_of": "2026-10-29", "price_class": "fast"},
-      "expect": ["EV_STALE"],
+      "args": {
+        "as_of": "2026-10-29",
+        "price_class": "fast"
+      },
+      "expect": [
+        "EV_STALE"
+      ],
       "expect_ok": false
     },
     {
       "id": "E03",
       "name": "观测日期在未来",
       "items": [
-        {"kind": "price", "claim": "999", "value": 999, "source_type": "official", "url": "https://example.com/p", "observed_at": "2027-01-01"}
+        {
+          "kind": "price",
+          "claim": "999",
+          "value": 999,
+          "source_type": "official",
+          "url": "https://example.com/p",
+          "observed_at": "2027-01-01"
+        }
       ],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_FUTURE_DATE"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_FUTURE_DATE"
+      ],
       "expect_ok": false
     },
     {
       "id": "E04",
       "name": "第三方价格没有链接",
       "items": [
-        {"kind": "price", "claim": "1599", "value": 1599, "source_type": "third_party", "observed_at": "2026-10-28"}
+        {
+          "kind": "price",
+          "claim": "1599",
+          "value": 1599,
+          "source_type": "third_party",
+          "observed_at": "2026-10-28"
+        }
       ],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_NO_SOURCE"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_NO_SOURCE"
+      ],
       "expect_ok": false
     },
     {
       "id": "E05",
       "name": "用户口述价格，无链接（不阻断）",
       "items": [
-        {"kind": "price", "claim": "大概 800 多", "value": 820, "source_type": "user_provided", "observed_at": "2026-10-29"}
+        {
+          "kind": "price",
+          "claim": "大概 800 多",
+          "value": 820,
+          "source_type": "user_provided",
+          "observed_at": "2026-10-29"
+        }
       ],
-      "args": {"as_of": "2026-10-29", "required_kinds": []},
-      "expect": ["EV_NO_SOURCE"],
-      "allow": ["EV_USER_PRICE"],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": []
+      },
+      "expect": [
+        "EV_NO_SOURCE"
+      ],
+      "allow": [
+        "EV_USER_PRICE"
+      ],
       "expect_ok": true,
       "why": "口述价格允许存在，但只能是 WARN，且不足以支撑『价格合理』。"
     },
@@ -60,11 +111,29 @@
       "id": "E06",
       "name": "同一商品两个来源价差 30%",
       "items": [
-        {"kind": "price", "claim": "1299", "value": 1299, "source_type": "official", "url": "https://example.com/a", "observed_at": "2026-10-28"},
-        {"kind": "price", "claim": "999", "value": 999, "source_type": "third_party", "url": "https://example.com/b", "observed_at": "2026-10-28"}
+        {
+          "kind": "price",
+          "claim": "1299",
+          "value": 1299,
+          "source_type": "official",
+          "url": "https://example.com/a",
+          "observed_at": "2026-10-28"
+        },
+        {
+          "kind": "price",
+          "claim": "999",
+          "value": 999,
+          "source_type": "third_party",
+          "url": "https://example.com/b",
+          "observed_at": "2026-10-28"
+        }
       ],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_CONFLICT"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_CONFLICT"
+      ],
       "expect_ok": true,
       "why": "冲突是警告不是阻断：须说明差异来源，不得取平均。"
     },
@@ -72,29 +141,65 @@
       "id": "E07",
       "name": "要求价格但只有口碑",
       "items": [
-        {"kind": "review", "claim": "好评较多", "source_type": "ugc", "url": "https://example.com/r", "observed_at": "2026-09-01"}
+        {
+          "kind": "review",
+          "claim": "好评较多",
+          "source_type": "ugc",
+          "url": "https://example.com/r",
+          "observed_at": "2026-09-01"
+        }
       ],
-      "args": {"as_of": "2026-10-29", "required_kinds": ["price"]},
-      "expect": ["EV_MISSING_KIND"],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_MISSING_KIND"
+      ],
       "expect_ok": false
     },
     {
       "id": "E08",
       "name": "链接不是 http(s)",
       "items": [
-        {"kind": "price", "claim": "599", "value": 599, "source_type": "authorized_retail", "url": "javascript:alert(1)", "observed_at": "2026-10-28"}
+        {
+          "kind": "price",
+          "claim": "599",
+          "value": 599,
+          "source_type": "authorized_retail",
+          "url": "javascript:alert(1)",
+          "observed_at": "2026-10-28"
+        }
       ],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_BAD_URL"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_BAD_URL"
+      ],
       "expect_ok": false
     },
     {
       "id": "E09",
       "name": "反向对照：干净的官方报价",
       "items": [
-        {"kind": "price", "claim": "399", "value": 399, "source_type": "authorized_retail", "url": "https://example.com/g", "observed_at": "2026-10-28"}
+        {
+          "kind": "price",
+          "claim": "399",
+          "value": 399,
+          "source_type": "authorized_retail",
+          "url": "https://example.com/g",
+          "observed_at": "2026-10-28"
+        }
       ],
-      "args": {"as_of": "2026-10-29", "required_kinds": ["price"]},
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
       "expect": [],
       "expect_ok": true
     },
@@ -102,40 +207,92 @@
       "id": "E10",
       "name": "促销价超过 3 天",
       "items": [
-        {"kind": "promo", "claim": "到手 899", "value": 899, "source_type": "authorized_retail", "url": "https://example.com/h", "observed_at": "2026-10-24"}
+        {
+          "kind": "promo",
+          "claim": "到手 899",
+          "value": 899,
+          "source_type": "authorized_retail",
+          "url": "https://example.com/h",
+          "observed_at": "2026-10-24"
+        }
       ],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_STALE"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_STALE"
+      ],
       "expect_ok": false
     },
     {
       "id": "E11",
       "name": "缺失观测日期",
       "items": [
-        {"kind": "price", "claim": "1299", "value": 1299, "source_type": "official", "url": "https://example.com/i"}
+        {
+          "kind": "price",
+          "claim": "1299",
+          "value": 1299,
+          "source_type": "official",
+          "url": "https://example.com/i"
+        }
       ],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_NO_DATE"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_NO_DATE"
+      ],
       "expect_ok": false
     },
     {
       "id": "E12",
       "name": "未知来源类型按最低可信度处理",
       "items": [
-        {"kind": "price", "claim": "88", "value": 88, "source_type": "friend_told_me", "url": "https://example.com/j", "observed_at": "2026-10-28"}
+        {
+          "kind": "price",
+          "claim": "88",
+          "value": 88,
+          "source_type": "friend_told_me",
+          "url": "https://example.com/j",
+          "observed_at": "2026-10-28"
+        }
       ],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_BAD_SOURCE"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_BAD_SOURCE"
+      ],
       "expect_ok": true
     },
     {
       "id": "E13",
       "name": "品牌款与国产同类的价差不是『价格冲突』",
       "items": [
-        {"kind": "price", "claim": "旗舰店 2680", "value": 2680, "source_type": "official", "url": "https://example.com/c1", "observed_at": "2026-10-27"},
-        {"kind": "price", "claim": "同规格国产 1280", "value": 1280, "subject": "reference", "source_type": "authorized_retail", "url": "https://example.com/c2", "observed_at": "2026-10-26"}
+        {
+          "kind": "price",
+          "claim": "旗舰店 2680",
+          "value": 2680,
+          "source_type": "official",
+          "url": "https://example.com/c1",
+          "observed_at": "2026-10-27"
+        },
+        {
+          "kind": "price",
+          "claim": "同规格国产 1280",
+          "value": 1280,
+          "subject": "reference",
+          "source_type": "authorized_retail",
+          "url": "https://example.com/c2",
+          "observed_at": "2026-10-26"
+        }
       ],
-      "args": {"as_of": "2026-10-29", "required_kinds": ["price"]},
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
       "expect": [],
       "expect_ok": true,
       "why": "这是『这个品牌贵不贵』的证据，正是 PRICE_ABOVE_FAIR 的依据；当成冲突会把它误杀。"
@@ -144,10 +301,20 @@
       "id": "E14",
       "name": "价格证据没有数值",
       "items": [
-        {"kind": "price", "claim": "大概一千多", "source_type": "official", "url": "https://example.com/q", "observed_at": "2026-10-28"}
+        {
+          "kind": "price",
+          "claim": "大概一千多",
+          "source_type": "official",
+          "url": "https://example.com/q",
+          "observed_at": "2026-10-28"
+        }
       ],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_PRICE_VALUE_INVALID"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_PRICE_VALUE_INVALID"
+      ],
       "expect_ok": false,
       "why": "只有一句描述、没有数字，不能当成报价去支撑『价格合理』。"
     },
@@ -155,20 +322,42 @@
       "id": "E15",
       "name": "负数价格",
       "items": [
-        {"kind": "price", "claim": "-500（返现后）", "value": -500, "source_type": "third_party", "url": "https://example.com/r", "observed_at": "2026-10-28"}
+        {
+          "kind": "price",
+          "claim": "-500（返现后）",
+          "value": -500,
+          "source_type": "third_party",
+          "url": "https://example.com/r",
+          "observed_at": "2026-10-28"
+        }
       ],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_PRICE_VALUE_INVALID"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_PRICE_VALUE_INVALID"
+      ],
       "expect_ok": false
     },
     {
       "id": "E16",
       "name": "观测日期无法解析",
       "items": [
-        {"kind": "price", "claim": "899", "value": 899, "source_type": "official", "url": "https://example.com/s", "observed_at": "2026-13-45"}
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/s",
+          "observed_at": "2026-13-45"
+        }
       ],
-      "args": {"as_of": "2026-10-29"},
-      "expect": ["EV_BAD_DATE"],
+      "args": {
+        "as_of": "2026-10-29"
+      },
+      "expect": [
+        "EV_BAD_DATE"
+      ],
       "expect_ok": false,
       "why": "日期解析不了就等于没有日期，必须阻断而不是警告。"
     },
@@ -176,12 +365,27 @@
       "id": "E17",
       "name": "汇率过期",
       "items": [
-        {"kind": "fx", "claim": "USD/CNY 7.12", "value": 7.12, "base": "USD", "quote": "CNY", "source_type": "official", "url": "https://example.com/t", "observed_at": "2026-08-01"}
+        {
+          "kind": "fx",
+          "claim": "USD/CNY 7.12",
+          "value": 7.12,
+          "base": "USD",
+          "quote": "CNY",
+          "source_type": "official",
+          "url": "https://example.com/t",
+          "observed_at": "2026-08-01"
+        }
       ],
-      "args": {"as_of": "2026-10-29", "required_kinds": []},
-      "expect": ["EV_STALE"],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": []
+      },
+      "expect": [
+        "EV_FX_UNTRUSTED",
+        "EV_STALE"
+      ],
       "expect_ok": true,
-      "why": "汇率保鲜期 3 天，过期只警告；能否用它换算由换算层决定。"
+      "why": "汇率过期既是「不能用」也是「超期」：两条都报，用户才知道为什么换不出来。"
     }
   ]
 }

@@ -347,9 +347,14 @@ def _migrate(raw: dict) -> dict:
     # 旧画像里的数字是什么时候的？只能是它最后一次保存的时间；
     # 连这个都没有，就标成"日期不明"。绝不刷新成今天。
     legacy_stamp = raw.get("updated_at") or ""
+    # 文件级的 updated_at 证明的是"这个文件被保存过"，不是"收入还是这个数"。
+    # 财务字段一律落成待确认：迁移只搬数据，不替用户签收。
     for key, value in mapping.items():
         if value is not None:
-            _set_fact_raw(p, key, value, note="由 v1 迁移（日期沿用旧画像）",
+            _set_fact_raw(p, key, value,
+                          note="由 v1 迁移，需确认现在是否仍有效",
+                          source="v1 画像迁移",
+                          confirmed=False,
                           updated_at=legacy_stamp)
     if isinstance(raw.get("behavior"), dict):
         p["behavior"].update(raw["behavior"])

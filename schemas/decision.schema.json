@@ -208,11 +208,19 @@
             ]
           },
           "url": {
-            "type": "string"
+            "type": "string",
+            "description": "可点开的报价链接。⚠️ 系统只做**结构检查**（scheme + host），不代表链接可访问、域名权威或页面写着这个价。"
           },
           "observed_at": {
             "type": "string",
             "description": "YYYY-MM-DD"
+          },
+          "page_price": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "取证方读完页面后**原样**记下的价格。填了它，这条报价才算做过「页面核对」（price_verified=page）；它与 value 差超过 2% 会被判EV_QUOTE_CONTENT_MISMATCH。⚠️ 系统只做减法，不能证明你真的读了页面，也不能证明域名是官方渠道。"
           }
         },
         "required": [

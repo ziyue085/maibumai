@@ -312,9 +312,9 @@ def _m36():
                     and str(e.get("subject") or "").lower() == "alternative"
                     and isinstance(e.get("value"), (int, float))
                     and abs(e["value"] - converted) / converted <= 0.05):
-                return None
-        return "ALT_PRICE_UNVERIFIED"
-    return _set(mbm, "_alt_price_problem", loose)
+                return {"problem": None, "verified": "source"}
+        return {"problem": "ALT_PRICE_UNVERIFIED", "verified": None}
+    return _set(mbm, "_alt_price_check", loose)
 
 
 @mutation("替代品预算不看未确认的结余上界")
@@ -343,6 +343,88 @@ def _m39():
     orig = store.fact_age
     return _set(store, "fact_age",
                 lambda profile, key: abs(orig(profile, key) or 0))
+
+
+# --- 第六轮审核新增：无报价、价格否决、汇率信任、迁移确认、页面价 --------
+@mutation("没有目标报价时视为没有缺陷")
+def _m40():
+    orig = mbm._target_price_defect
+
+    def loose(ev_result, items, price, target_prices):
+        if not target_prices:
+            return None
+        return orig(ev_result, items, price, target_prices)
+    return _set(mbm, "_target_price_defect", loose)
+
+
+@mutation("目标价格不可信不压过换方案")
+def _m41():
+    return _set(verdict, "PRICE_VETO_CODES", ())
+
+
+@mutation("汇率不看来源与链接")
+def _m42():
+    orig = evidence.fx_rejection
+
+    def loose(item, base, as_of=None):
+        src = str(item.get("base") or "").upper()
+        dst = str(item.get("quote") or "").upper()
+        value = item.get("value")
+        if not (src and dst and src != dst):
+            return "FX_NO_PAIR"
+        if not evidence._positive_number(value):
+            return "FX_BAD_VALUE"
+        return None
+    return _set(evidence, "fx_rejection", loose)
+
+
+@mutation("迁移时把财务字段标成已确认")
+def _m43():
+    orig = store._set_fact_raw
+
+    def force_confirm(profile, key, value, note="", source="", confirmed=True,
+                      updated_at=None):
+        orig(profile, key, value, note=note, source=source, confirmed=True,
+             updated_at=updated_at)
+    return _set(store, "_set_fact_raw", force_confirm)
+
+
+@mutation("输入价与证据价不一致也放过")
+def _m44():
+    return _set(mbm, "PRICE_MISMATCH_TOLERANCE", 99.0)
+
+
+@mutation("不检查页面价与引用价是否一致")
+def _m45():
+    return _set(evidence, "quote_content_problem", lambda item, tolerance=0.02: None)
+
+
+@mutation("替代品报价一律标成 page 级")
+def _m46():
+    orig = mbm._alt_price_check
+
+    def always_page(*args, **kwargs):
+        out = orig(*args, **kwargs)
+        if out.get("problem") is None:
+            out["verified"] = "page"
+        return out
+    return _set(mbm, "_alt_price_check", always_page)
+
+
+@mutation("fx_rates 忽略 fx_rejection")
+def _m47():
+    def loose(items, base, as_of=None):
+        rates = {}
+        for item in items or []:
+            if item.get("kind") != "fx":
+                continue
+            src = str(item.get("base") or "").upper()
+            dst = str(item.get("quote") or "").upper()
+            value = item.get("value")
+            if src and dst and evidence._positive_number(value):
+                rates[(src, dst)] = float(value)
+        return rates
+    return _set(evidence, "fx_rates", loose)
 
 
 def main() -> int:

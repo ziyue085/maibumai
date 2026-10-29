@@ -1,5 +1,57 @@
 # 更新日志
 
+## v0.6.0-beta（2026-10-30）
+
+第六轮审核（6 项）。这一轮的主题是**"没有证据就没有结论"**——
+之前几轮已经能拦住"证据不合格"，但拦的方式不对：有的照旧输出 BUY，
+有的把冲突挂起来却继续用旧数字算，有的把"链接长得像网址"当成"已核实报价"。
+
+### 修复审核发现
+
+1. **没有目标报价证据仍然输出 BUY** — 引擎只在"已索引的缺陷"里找价格问题，
+   一条报价证据都没有时索引是空的，于是 900 元的全额财务 + 完整买入理由可以直接得出 BUY。
+   现在显式区分"有证据但不可信"与"根本没有证据"：后者一律注入 `PRICE_UNVERIFIED`
+   并按新优先级判暂缓。新增 N1（`EV_MISSING_KIND` 不进索引，不能靠索引发现）。
+2. **目标价缺陷压不过换方案** — `resolve()` 原来由 SWITCH 分支优先返回，
+   目标价过期 + 替代品合格时会输出"换方案 + ok=False"，仍然是半个结论。
+   现在新增 `price_veto` 层：目标价不可信且替代品**没有独立合格报价**时，
+   直接判暂缓，而不是换个方案绕过。新增 N2；P12（坏日期）同步改为暂缓。
+3. **未核实汇率会进入计算** — 用户口述的汇率只要数值合理就被采纳，
+   用来归一化价格、预算和替代品比较。现在汇率单独过来源等级、链接、
+   日期、币种对、数值五道关，驳回后**不参与任何计算**，只提示换算不可信。
+   新增 `fx_rejection()`（8 个驳回码）、N3、E17 扩展。
+4. **输入价与证据价冲突不能只拦落账** — 输入 900 元、可信报价 600 元（>5%）时，
+   原因未知，一律暂缓；审计码 `AUD_PRICE_MISMATCH` 从"阻止落账"升级为判定阶段就生效。
+   容差 `PRICE_MISMATCH_TOLERANCE = 0.05`。新增 N4。
+5. **v1 迁移靠文件 `updated_at` 冒充"已确认"** — 迁移只把旧画像搬过来，
+   财务字段却被标记为已确认，等于替用户确认了他从没确认过的数字。
+   现在迁移一律标 `confirmed=False`、`source="v1 画像迁移"`、沿用旧时间戳。
+   新增 T10（日期是今天也不会变成已确认）。
+6. **`valid_url()` 只检查结构** — 长得像网址 ≠ 来源可信 ≠ 页面上的价就是引用的价。
+   现在拆成三层：`url_syntax_ok()`（只是格式，不再对外宣称"已核实"）、
+   来源等级/链接/日期、`quote_content_problem()`（页面价与引用价 > 2% 判不一致）。
+   新增 `tests/real_quote_probe.py`（联网抓一次真实报价页，落 `tests/fixtures/real-quote-record.json`
+   供离线回放）与 realquote 套件 Q0–Q3。
+
+### 新增
+
+- 判定优先级增加 `price_veto` 层：`hard_block > price_veto > money_only_block > SWITCH > DEFER > BUY`。
+- 规则码：`PRICE_VETO_CODES`、审计码 `AUD_PRICE_VETO_IGNORED`；
+  证据码 `EV_FX_UNTRUSTED`、`EV_QUOTE_CONTENT_MISMATCH`。
+- 替代品报价分级 `price_verified`：`page`（页面价吻合）/ `source`（有链接且来源合格）/ `None`。
+- `evidence.url_syntax_ok()`（`valid_url` 保留为别名）、`evidence.quote_content_problem()`、
+  `evidence.fx_rejection()`、`evidence.fx_rates()`。
+
+### 测试
+
+- 规则夹具 179 条（verdict 20 / audit 22 / evidence 17 / calc 35 / pipeline 67 / ledger 3 / profile 10 / realquote 5）。
+- 变异测试 47 个，全部被**语义断言**捕获（新增 8 个：无报价放过、价格否决失效、
+  汇率放松、迁移强制确认、容差放水、页面内容不校验、替代品一律 page、`fx_rates` 忽略驳回）。
+- 端到端 41 步；Windows 关键路径 11 项。
+- 正向对照仍在：N5（可买）、Q1/Q3（合格替代品换方案）、P34（L2 在结余内可买）——
+  不是"一律暂缓"就算通过。
+
+
 ## v0.5.0-beta（2026-10-29）
 
 第五轮审核（5 项）。这一轮没有加新功能，全是**边界**：等级边界、存量边界、

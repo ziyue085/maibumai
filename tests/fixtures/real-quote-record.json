@@ -1,0 +1,47 @@
+{
+  "_howto": [
+    "本文件由 tests/real_quote_probe.py 生成，是一份**抓取留痕**。",
+    "它证明：这个 URL 在 fetched_at 返回的正文里出现过 claim_price 这个数字。",
+    "它**不**证明该域名是官方渠道，也不证明现在还是这个价。",
+    "重新生成：python tests/real_quote_probe.py --url ... --expect ... --out 本文件"
+  ],
+  "url": "https://www.backblaze.com/cloud-storage/pricing",
+  "fetched_at": "2026-10-29",
+  "http_status": 200,
+  "body_bytes": 243937,
+  "body_sha256": "381f496f1c1801e7aa669ae779b974e18935649bc85d273e7d36e59a4146eecb",
+  "claim_price": 6.95,
+  "currency": "USD",
+  "matched": true,
+  "page_prices": [
+    {
+      "amount": 0.0,
+      "currency": "USD"
+    },
+    {
+      "amount": 0.01,
+      "currency": "USD"
+    },
+    {
+      "amount": 1.0,
+      "currency": "USD"
+    },
+    {
+      "amount": 5.0,
+      "currency": "USD"
+    },
+    {
+      "amount": 6.95,
+      "currency": "USD"
+    },
+    {
+      "amount": 15.0,
+      "currency": "USD"
+    },
+    {
+      "amount": 1560.0,
+      "currency": "USD"
+    }
+  ],
+  "page_price_count": 7
+}

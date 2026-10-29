@@ -78,6 +78,10 @@ RULE_ZH = {
 
 TIERS = ("DONT_BUY", "SWITCH", "DEFER", "BUY")
 
+#: 目标商品价格不可信的码。命中它们时，"买这个"和"换成那个"都失去前提：
+#: 「换成那个更便宜」需要先确认"这个"是多少钱。
+PRICE_VETO_CODES = ("PRICE_STALE", "PRICE_UNVERIFIED")
+
 #: 只跟"这笔钱"有关的拦截码。它们描述的是**这个价格**买不起，
 #: 而不是这件事不该做——所以遇到买得起的替代方案时，可以让位给「建议替换方案」。
 MONEY_TIER_CODES = ("BUDGET_BREACH", "BUDGET_TIGHT", "UNAFFORDABLE_DEBT")
@@ -143,6 +147,7 @@ ALT_PROBLEM_ZH = {
     "ALT_PRICE_UNVERIFIED": "替代品的价格没有可核验的证据：换过去省不省钱无法核实",
     "ALT_PRICE_WEAK_SOURCE": "替代品的报价来自口述或社区，缺少可核验的公开报价",
     "ALT_PRICE_STALE": "替代品的报价已过期或没有日期，不能当作现价",
+    "ALT_PRICE_CONTENT_MISMATCH": "替代品的报价与页面上看到的价格不一致，这条证据自相矛盾",
     "ALT_OVER_BUDGET": "替代方案同样超出你的承受能力，换过去并不能解决问题",
     "ALT_NEEDS_TIME": "替代方案同样需要跨月支出，换过去并不能解决问题",
     "ALT_BUDGET_UNKNOWN": "替代方案的预算状态无法确认，不能据此给出替换建议",
@@ -158,6 +163,7 @@ ALT_AUDIT_CODE = {
     "ALT_PRICE_UNVERIFIED": "AUD_ALT_UNVERIFIED_PRICE",
     "ALT_PRICE_WEAK_SOURCE": "AUD_ALT_UNVERIFIED_PRICE",
     "ALT_PRICE_STALE": "AUD_ALT_PRICE_STALE",
+    "ALT_PRICE_CONTENT_MISMATCH": "AUD_ALT_UNVERIFIED_PRICE",
     "ALT_OVER_BUDGET": "AUD_ALT_OVER_BUDGET",
     "ALT_NEEDS_TIME": "AUD_ALT_BUDGET_UNVERIFIED",
     "ALT_BUDGET_UNKNOWN": "AUD_ALT_BUDGET_UNVERIFIED",
@@ -187,7 +193,12 @@ def _valid_alternative(alt) -> bool:
 def resolve(reasons, alternative=None, override=None, alt_problems=None):
     """按固定优先级把规则码解析成结论。
 
-    优先级：硬拦截 > 换方案 > 暂缓 > 购买。任何一级命中即短路。
+    优先级：硬拦截 > 目标价格不可信 > 换方案 > 暂缓 > 购买。任何一级命中即短路。
+
+    "目标价格不可信"（PRICE_STALE / PRICE_UNVERIFIED）压在"换方案"之上：
+    换成另一个更便宜的东西，前提是"这个"的价格成立；价格没确认时，
+    推荐替代品只是拿一个未核实的数字做比较。唯一例外是已有**非价格类**硬拦截
+    （重复持有、诈骗、违反硬约束）——那些否定的不是价格，结论仍是"不建议购买"。
 
     ``alt_problems``：引擎算出的替代方案问题清单（结构 + 预算 + 汇率 + 证据）。
     传了就以它为准；不传则只做结构检查。**不合格的替代方案不产出 SWITCH**——
@@ -221,16 +232,43 @@ def resolve(reasons, alternative=None, override=None, alt_problems=None):
     # 「不建议购买」等于把人留在原地，「建议替换方案」才给得出下一步。
     money_only_block = bool(tiers["DONT_BUY"]) and all(
         c in MONEY_TIER_CODES for c in tiers["DONT_BUY"])
+    # 目标价格不可信 ⇒ 购买类结论全部不成立（含 SWITCH）：
+    # "换成那个更便宜"必须先知道"这个"是多少钱。价格没确认时，
+    # 唯一诚实的答案是"先把价格核实清楚"。
+    price_veto = sorted({c for c in tiers["DEFER"] if c in PRICE_VETO_CODES})
+    hard_block = [c for c in tiers["DONT_BUY"] if c not in MONEY_TIER_CODES]
 
-    base = (
-        "DONT_BUY" if tiers["DONT_BUY"] and not money_only_block
-        else "SWITCH" if tiers["SWITCH"] and not problems
-        else "DONT_BUY" if tiers["DONT_BUY"]
-        else "DEFER" if tiers["SWITCH"]
-        else "DEFER" if tiers["DEFER"]
-        else "BUY" if tiers["BUY"] and any(c in BUY_ANCHORS for c in tiers["BUY"])
-        else "DEFER"
-    )
+    if hard_block:
+        base, note = "DONT_BUY", "硬拦截：" + "、".join(tiers["DONT_BUY"])
+    elif price_veto:
+        base = "DEFER"
+        note = ("目标商品的价格还没确认（" + "、".join(price_veto) + "）"
+                + ("：换成什么都要拿它比价，先把这个价核实清楚" if tiers["SWITCH"]
+                   else "：值不值、买不买得起都建立在这个数字上"))
+    elif money_only_block:
+        if tiers["SWITCH"] and not problems:
+            base = "SWITCH"
+            note = ("这个价格买不起，但替代方案在承受范围内："
+                    + "、".join(tiers["DONT_BUY"]) + " 只否定这个买法")
+        else:
+            base, note = "DONT_BUY", "硬拦截：" + "、".join(tiers["DONT_BUY"])
+    elif tiers["SWITCH"]:
+        if problems:
+            base = "DEFER"
+            note = ("命中换方案条件，但替代方案还不成立（"
+                    + "；".join(ALT_PROBLEM_ZH.get(p, p) for p in problems)
+                    + "），只能先暂缓：" + "、".join(tiers["SWITCH"]))
+        else:
+            base, note = "SWITCH", ""
+    elif tiers["DEFER"]:
+        base, note = "DEFER", ""
+    elif tiers["BUY"]:
+        if any(c in BUY_ANCHORS for c in tiers["BUY"]):
+            base, note = "BUY", ""
+        else:
+            base, note = "DEFER", "只有价格类理由、缺'为什么需要'的锚点，不足以支持购买"
+    else:
+        base, note = "DEFER", "没有任何有效规则码支撑，按信息不足处理"
 
     if override and override.get("verdict") in VERDICT_ZH:
         target = override["verdict"]
@@ -245,34 +283,7 @@ def resolve(reasons, alternative=None, override=None, alt_problems=None):
             return result("DONT_BUY", "硬拦截不可被驳回：" + "、".join(tiers["DONT_BUY"]))
         return result(target, f"人工下调：{override.get('reason') or '未说明理由'}", overridden=True)
 
-    # 只被钱挡住、且替代方案合格时，不在这一步否决，落到下面的换方案分支
-    money_switch = money_only_block and bool(tiers["SWITCH"]) and not problems
-    if tiers["DONT_BUY"] and not money_switch:
-        return result("DONT_BUY", "硬拦截：" + "、".join(tiers["DONT_BUY"]))
-
-    if tiers["SWITCH"]:
-        if not problems:
-            note = ""
-            if money_only_block:
-                note = ("这个价格买不起，但替代方案在承受范围内："
-                        + "、".join(tiers["DONT_BUY"]) + " 只否定这个买法")
-            return result("SWITCH", note)
-        return result(
-            "DEFER",
-            "命中换方案条件，但替代方案还不成立（"
-            + "；".join(ALT_PROBLEM_ZH.get(p, p) for p in problems)
-            + "），只能先暂缓：" + "、".join(tiers["SWITCH"]),
-        )
-
-    if tiers["DEFER"]:
-        return result("DEFER")
-
-    if tiers["BUY"]:
-        if any(c in BUY_ANCHORS for c in tiers["BUY"]):
-            return result("BUY")
-        return result("DEFER", "只有价格类理由、缺'为什么需要'的锚点，不足以支持购买")
-
-    return result("DEFER", "没有任何有效规则码支撑，按信息不足处理")
+    return result(base, note)
 
 
 # ---------------------------------------------------------------------------
@@ -395,15 +406,25 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
         findings.append(
             _finding("AUD_DONTBUY_NO_BLOCK", "BLOCK", "不建议购买必须由至少一条硬拦截理由支撑")
         )
+    price_veto = sorted({c for c in codes if c in PRICE_VETO_CODES})
     if tiers["SWITCH"] and not tiers["DONT_BUY"] and verdict != "SWITCH":
+        # 降为暂缓有三种正当理由：替代品不完整、替代品预算不成立、目标价不可信
         downgraded_for_alt = verdict == "DEFER" and (
-            not _valid_alternative(alt) or bool(alt_engine_problems)
+            not _valid_alternative(alt) or bool(alt_engine_problems) or bool(price_veto)
         )
         if not downgraded_for_alt:
             findings.append(
                 _finding("AUD_TIER_CONFLICT", "BLOCK",
                          f"存在换方案理由 {tiers['SWITCH']}，结论应为「建议替换方案」")
             )
+    if verdict in ("BUY", "SWITCH") and price_veto:
+        findings.append(
+            _finding(
+                "AUD_PRICE_VETO_IGNORED", "BLOCK",
+                f"目标商品价格不可信（{price_veto}），不能给出购买或替换结论",
+                {"codes": price_veto},
+            )
+        )
     if verdict == "BUY" and any(RULE_TIER.get(c) == "DEFER" for c in codes):
         findings.append(
             _finding("AUD_TIER_CONFLICT", "BLOCK",
@@ -448,7 +469,10 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
                     {"problem": problem, "alternative": alt_info},
                 )
             )
-    elif tiers["SWITCH"] and not tiers["DONT_BUY"] and verdict == "DEFER":
+    elif (tiers["SWITCH"] and not tiers["DONT_BUY"] and verdict == "DEFER"
+          and not price_veto):
+        # 只在"替代品本身不完整"时提示。价格否决导致的暂缓，替代品可能是合格的，
+        # 说它"不完整"是错怪它。
         findings.append(
             _finding(
                 "AUD_ALT_UNQUALIFIED", "WARN",

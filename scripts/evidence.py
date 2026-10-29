@@ -20,6 +20,18 @@ SOURCE_TIERS = {
     "ugc": 5,
 }
 
+#: 汇率被拒的原因 → 给人看的话。用户需要知道"为什么换不出来"。
+FX_REJECTION_ZH = {
+    "FX_NO_PAIR": "没有写清是哪两个币种之间的汇率",
+    "FX_SAME_PAIR": "两个币种相同，不需要汇率",
+    "FX_BAD_VALUE": "汇率数值不成立",
+    "FX_WEAK_SOURCE": "来源是口述或社区，不足以作为换算依据",
+    "FX_NO_LINK": "没有可核验的链接",
+    "FX_NO_DATE": "没有标注观测日期",
+    "FX_FUTURE_DATE": "观测日期在未来",
+    "FX_STALE": "已超过 3 天有效期",
+}
+
 STALE_DAYS = {
     "price": 14,
     "price_fast": 7,
@@ -67,7 +79,8 @@ def _parse_date(value):
     return None
 
 
-def _valid_url(url: str) -> bool:
+def _url_syntax_ok(url: str) -> bool:
+    """**只**验证 URL 结构。不代表可访问、不代表是官方域名、更不代表页面写着这个价。"""
     try:
         parsed = urlparse(url)
     except ValueError:
@@ -82,30 +95,56 @@ def _positive_number(value):
 # ---------------------------------------------------------------------------
 # 币种
 # ---------------------------------------------------------------------------
-def fx_rates(items, base: str, as_of=None) -> dict:
-    """从证据里读出**仍在有效期内**的汇率。
+def fx_rejection(item: dict, base: str, as_of=None) -> str | None:
+    """这条汇率能不能用。能用返回 None，否则返回不能用的原因码。
 
-    汇率是时效性最强的数据：三个月前的 7.1 和今天的 7.1 是两回事。
-    所以这里同时过滤三件事：日期可解析、不在未来、未超过 3 天保鲜期。
+    汇率直接乘进价格，错一位就是几十上百块的偏差，所以它比价格更严：
+    **来源不可信或没有链接的汇率，一律不进计算**——宁可换算失败，也不拿
+    "朋友说 7.3" 去当今天的汇率。
+    """
+    src = str(item.get("base") or "").upper()
+    dst = str(item.get("quote") or "").upper()
+    value = item.get("value")
+    if not (src and dst):
+        return "FX_NO_PAIR"
+    if src == dst:
+        return "FX_SAME_PAIR"
+    if not _positive_number(value):
+        return "FX_BAD_VALUE"
+    tier = SOURCE_TIERS.get(str(item.get("source_type") or ""), 5)
+    if tier > 3:
+        # 口述、社区、来源缺失：可以做线索，不能做乘数
+        return "FX_WEAK_SOURCE"
+    if not _url_syntax_ok(str(item.get("url") or "").strip()):
+        return "FX_NO_LINK"
+    ref = _parse_date(as_of) or _dt.date.today()
+    when = _parse_date(item.get("observed_at"))
+    if when is None:
+        return "FX_NO_DATE"
+    if when > ref:
+        return "FX_FUTURE_DATE"
+    if (ref - when).days > STALE_DAYS["fx"]:
+        return "FX_STALE"
+    return None
+
+
+def fx_rates(items, base: str, as_of=None) -> dict:
+    """从证据里读出**可用**的汇率。
+
+    汇率是时效性最强的数据，也是唯一直接乘进价格的数字。所以这里要过五关：
+    币种对完整、数值为正、来源等级 ≤ 3、有可核验链接、日期在 3 天保鲜期内。
+    任一关不过就跳过——换算失败会阻断，比用错汇率好。
     """
     base = (base or "CNY").upper()
-    ref = _parse_date(as_of) or _dt.date.today()
-    limit = STALE_DAYS["fx"]
     rates = {}
     for item in items or []:
         if item.get("kind") != "fx":
             continue
+        if fx_rejection(item, base, as_of) is not None:
+            continue
         src = str(item.get("base") or "").upper()
         dst = str(item.get("quote") or "").upper()
-        value = item.get("value")
-        if not (src and dst and _positive_number(value)):
-            continue
-        when = _parse_date(item.get("observed_at"))
-        if when is None or when > ref:
-            continue
-        if (ref - when).days > limit:
-            continue
-        rates[(src, dst)] = float(value)
+        rates[(src, dst)] = float(item["value"])
     return rates
 
 
@@ -192,9 +231,36 @@ def to_base(items, base="CNY", product=None, as_of=None):
     return items, product, findings
 
 
-def valid_url(url) -> bool:
-    """公开版本：其他地方要判断「这条报价有没有可点开的出处」。"""
-    return _valid_url(str(url or "").strip())
+def url_syntax_ok(url) -> bool:
+    """公开版本：URL 结构检查。
+
+    ⚠️ **只查格式**。它能区分"有没有给链接"，**不能**证明链接可打开、
+    域名属于官方渠道、或页面上确实是这个价格。后两件事只能由取证方（模型）
+    去读页面，并把结果写进证据的 ``page_price`` 字段——本函数不参与。
+    """
+    return _url_syntax_ok(str(url or "").strip())
+
+
+#: 兼容旧名。名字里的 "valid" 容易被误读成"已核实"，新代码请用 url_syntax_ok。
+valid_url = url_syntax_ok
+
+
+def quote_content_problem(item: dict, tolerance: float = 0.02) -> str | None:
+    """报价与"页面上看到的价格"是否对得上。
+
+    ``page_price`` 是取证方（模型）读完页面后填的**原样价格**。本函数只做减法：
+    两者差超过 2% 就说明这条证据自相矛盾——比如 claim 写 599、页面价填 899。
+
+    ⚠️ 它**不能**证明模型真的读了那个页面，也**不能**证明域名是官方渠道。
+    这两件事本仓库做不到，别把这里的检查当成"内容已核实"。
+    """
+    page = item.get("page_price")
+    value = item.get("value")
+    if not (_positive_number(page) and _positive_number(value)):
+        return None
+    if abs(float(page) - float(value)) / float(value) > tolerance:
+        return "QUOTE_CONTENT_MISMATCH"
+    return None
 
 
 def item_freshness(kind, observed_at, as_of=None, price_class="durable"):
@@ -216,7 +282,7 @@ def item_freshness(kind, observed_at, as_of=None, price_class="durable"):
 # ---------------------------------------------------------------------------
 # 主校验
 # ---------------------------------------------------------------------------
-def check(items, as_of=None, price_class="durable", required_kinds=("price",)):
+def check(items, as_of=None, price_class="durable", required_kinds=("price",), base="CNY"):
     as_of_date = _parse_date(as_of) or _dt.date.today()
     items = list(items or [])
     findings = []
@@ -292,7 +358,7 @@ def check(items, as_of=None, price_class="durable", required_kinds=("price",)):
         if needs_source and not url:
             sev = "WARN" if src == "user_provided" else "BLOCK"
             findings.append(_finding("EV_NO_SOURCE", sev, f"{kind} 类主张缺少可核验链接", scope))
-        if url and not _valid_url(url):
+        if url and not _url_syntax_ok(url):
             findings.append(_finding("EV_BAD_URL", "BLOCK", f"链接不可核验：{url}", scope))
 
         observed_date = _parse_date(observed)
@@ -329,6 +395,27 @@ def check(items, as_of=None, price_class="durable", required_kinds=("price",)):
                     price_points.append(
                         {"value": float(value), "tier": tier, "date": observed_date, "subject": subject}
                     )
+
+        if kind == "fx":
+            why = fx_rejection(item, base, as_of)
+            if why:
+                findings.append(
+                    _finding(
+                        "EV_FX_UNTRUSTED", "WARN",
+                        "这条汇率不能参与换算（" + FX_REJECTION_ZH.get(why, why) + "）",
+                        {**scope, "reason": why},
+                    )
+                )
+
+        content_problem = quote_content_problem(item)
+        if content_problem:
+            findings.append(
+                _finding(
+                    "EV_QUOTE_CONTENT_MISMATCH", "BLOCK",
+                    f"报价 {value} 与页面抓到的价格 {item.get('page_price')} 不一致：这条证据自相矛盾",
+                    scope,
+                )
+            )
 
         if kind in PRICE_KINDS and observed_date and observed_date <= as_of_date:
             if src == "ugc":

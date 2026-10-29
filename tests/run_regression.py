@@ -258,6 +258,11 @@ def run_pipeline():
             got_alt = sorted((result["numbers"].get("alternative") or {}).get("problems") or [])
             if got_alt != sorted(want_alt):
                 problems.append(f"替代品问题 {got_alt} 期望 {sorted(want_alt)}")
+        want_verified = c.get("expect_alt_verified")
+        if want_verified is not None:
+            got_verified = (result["numbers"].get("alternative") or {}).get("price_verified")
+            if got_verified != want_verified:
+                problems.append(f"替代品核实等级 {got_verified!r} 期望 {want_verified!r}")
         want_alt_price = c.get("expect_alt_price")
         if want_alt_price is not None:
             got_price = (result["numbers"].get("alternative") or {}).get("price")
@@ -443,6 +448,20 @@ def run_profile():
               and store.fact_stale(prof, "finance.discretionary_override"),
               item)
 
+        # --- v1 的整体 updated_at 就是今天：文件被保存过 ≠ 每个数字今天确认过
+        v1_today = {"schema_version": 1, "updated_at": today.isoformat(),
+                    "budget": {"discretionary_monthly": 4000, "hard_cap_single": 20000},
+                    "currency": "CNY"}
+        (home / "profile.json").write_text(
+            json.dumps(v1_today, ensure_ascii=False), encoding="utf-8")
+        prof = store.load_profile()
+        item = prof["facts"]["finance.discretionary_override"]
+        check("T10", "迁移不凭文件时间戳确认字段",
+              item["confirmed"] is False
+              and store.fact_fresh(prof, "finance.discretionary_override") is None
+              and store.financial_snapshot(prof)["monthly_surplus"] is None,
+              {"item": item, "surplus": store.financial_snapshot(prof)["monthly_surplus"]})
+
         # --- v1 无 updated_at
         v1_no_date = {"schema_version": 1,
                       "budget": {"discretionary_monthly": 2000}, "currency": "CNY"}
@@ -463,6 +482,125 @@ def run_profile():
     return out
 
 
+
+def run_realquote():
+    """真实网页报价的离线回放。
+
+    ``tests/fixtures/real-quote-record.json`` 由 ``tests/real_quote_probe.py``
+    抓取生成，记下 URL、抓取时间、HTTP 状态、正文 sha256 和页面上的价格集合。
+    这里**不联网**：CI 用这份快照验证「报价 vs 页面价」这道检查确实生效。
+
+    它证明不了的事情写在记录自己的 `_howto` 里：不证明域名权威、
+    不证明现在还是这个价、也不证明取证方真的读了页面。
+    """
+    import datetime as _dt
+
+    import mbm  # noqa: E402  延迟导入，避免影响其他套件的 import 顺序
+
+    out = []
+    record_path = CASES.parent / "fixtures" / "real-quote-record.json"
+
+    def check(cid, name, cond, detail=""):
+        out.append(_res("realquote", cid, name, bool(cond), "" if cond else detail))
+
+    if not record_path.exists():
+        out.append(_res("realquote", "Q0", "存在真实报价记录", False,
+                        f"缺少 {record_path}，先跑 tests/real_quote_probe.py"))
+        return out
+
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    claim = record.get("claim_price")
+    url = record.get("url")
+    fetched = record.get("fetched_at")
+    prices = record.get("page_prices") or []
+
+    # --- Q0 记录自身自洽：不要让人手改出一个"看起来像抓过"的文件
+    digest = str(record.get("body_sha256") or "")
+    check("Q0", "记录自洽（状态/指纹/页面上确有该价格）",
+          record.get("http_status") == 200
+          and record.get("matched") is True
+          and isinstance(claim, (int, float))
+          and len(digest) == 64
+          and all(ch in "0123456789abcdef" for ch in digest)
+          and any(abs(float(p["amount"]) - float(claim)) < 0.005
+                  and p.get("currency") == record.get("currency") for p in prices),
+          {"status": record.get("http_status"), "matched": record.get("matched"),
+           "claim": claim, "prices": prices[:5]})
+
+    try:
+        _dt.date.fromisoformat(str(fetched))
+        date_ok = True
+    except ValueError:
+        date_ok = False
+    check("Q0b", "抓取日期可解析", date_ok, fetched)
+
+    base_facts = {
+        "finance.monthly_income": 2000, "finance.monthly_fixed_expense": 1500,
+        "finance.savings_target_monthly": 0, "invest.monthly_contribution": 0,
+        "finance.discretionary_override": 500,
+    }
+
+    def draft(alt_value, page_price=None, with_page=True):
+        alt_ev = {"kind": "price", "claim": f"官网 {alt_value}",
+                  "value": alt_value, "currency": record.get("currency"),
+                  "subject": "alternative", "source_type": "official",
+                  "url": url, "observed_at": fetched}
+        if with_page and page_price is not None:
+            alt_ev["page_price"] = page_price
+        return {
+            "product": {"name": "某云备份服务 1TB", "price": 8.95, "period": "month",
+                        "currency": record.get("currency"), "category": "订阅/云存储"},
+            "reasons": [
+                {"code": "NEED_REAL", "note": "笔记本照片备份，已经满了两次"},
+                {"code": "SUBSTITUTE_ADEQUATE", "note": "同容量有更便宜的对象存储"},
+                {"code": "PRICE_ABOVE_FAIR", "note": "按量计费单价明显更高"},
+            ],
+            "alternative": {"name": "对象存储 B2", "price": alt_value, "period": "month",
+                            "currency": record.get("currency"), "source": "官方定价页"},
+            "evidence": [
+                {"kind": "price", "claim": "8.95", "value": 8.95,
+                 "currency": record.get("currency"), "source_type": "official",
+                 "url": url, "observed_at": fetched},
+                alt_ev,
+            ],
+            "as_of": fetched,
+            # 暂缓必须带复查条件；SWITCH 用不到，但一起写不影响
+            "recheck_condition": "打开官方定价页核对当前价后重新判断",
+        }
+
+    profile = _fixture_profile({"base_currency": record.get("currency") or "USD",
+                                "facts": base_facts})
+
+    # --- Q1 报价与页面价一致 → 可以给 SWITCH，且标为 page 级
+    res = mbm._evaluate(draft(claim, page_price=claim), profile)
+    alt = res["numbers"].get("alternative") or {}
+    check("Q1", "页面价一致时可给替换建议（page 级）",
+          res["verdict"]["verdict"] == "SWITCH" and res["ok"] is True
+          and alt.get("price_verified") == "page" and not alt.get("problems"),
+          {"verdict": res["verdict"]["verdict"], "ok": res["ok"],
+           "verified": alt.get("price_verified"), "problems": alt.get("problems")})
+
+    # --- Q2 有人把引用价写成页面价的七成：证据自相矛盾 → 不给 SWITCH
+    fake = round(float(claim) * 0.7, 2)
+    res2 = mbm._evaluate(draft(fake, page_price=claim), profile)
+    alt2 = res2["numbers"].get("alternative") or {}
+    check("Q2", "引用价与页面价不符时不给替换建议",
+          res2["verdict"]["verdict"] == "DEFER" and res2["ok"] is True
+          and "ALT_PRICE_CONTENT_MISMATCH" in (alt2.get("problems") or []),
+          {"verdict": res2["verdict"]["verdict"], "ok": res2["ok"],
+           "problems": alt2.get("problems")})
+
+    # --- Q3 只有链接、没有页面价：可以给，但只能标到 source 级，不许冒充已核对
+    res3 = mbm._evaluate(draft(claim, with_page=False), profile)
+    alt3 = res3["numbers"].get("alternative") or {}
+    check("Q3", "没填页面价时只标 source 级，不谎称页面核对过",
+          res3["verdict"]["verdict"] == "SWITCH"
+          and alt3.get("price_verified") == "source",
+          {"verdict": res3["verdict"]["verdict"],
+           "verified": alt3.get("price_verified")})
+    return out
+
+
 SUITES = {
     "verdict": run_verdict,
     "audit": run_audit,
@@ -471,6 +609,7 @@ SUITES = {
     "pipeline": run_pipeline,
     "ledger": run_ledger,
     "profile": run_profile,
+    "realquote": run_realquote,
 }
 
 

@@ -1,0 +1,864 @@
+{
+  "meta": {
+    "purpose": "跨模块全链路夹具。覆盖第二轮审核的 10 项发现，断言走完整 _evaluate。",
+    "fields": {
+      "profile": "扁平 facts + constraints，构造 v2 画像",
+      "expect_blocking": "必须出现的阻断码（精确匹配）",
+      "expect_verdict": "引擎最终结论",
+      "expect_ok": "能否落账",
+      "expect_level": "最终等级",
+      "expect_gate": "三道门的通过状态"
+    }
+  },
+  "cases": [
+    {
+      "id": "P01",
+      "name": "预算超标：财务模块判定后必须强制为不建议购买",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "相机",
+          "price": 18000,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "想学摄影，已经借朋友的机子拍了一个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "三家官方渠道都是这个价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "二手市场残值约七成，随时能出手"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "18000",
+            "value": 18000,
+            "source_type": "official",
+            "url": "https://example.com/a",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "prediction": {
+          "uses_per_month": 4,
+          "months": 60
+        }
+      },
+      "expect_verdict": "DONT_BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_gate": {
+        "financial": true
+      }
+    },
+    {
+      "id": "P02",
+      "name": "自设单笔硬上限必须强制执行（即使月预算够）",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 5000,
+          "finance.hard_cap_single": 3000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "相机",
+          "price": 3500,
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "想学摄影，已经拍了一个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "三家官方渠道同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "残值高，转手损失小"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "3500",
+            "value": 3500,
+            "source_type": "official",
+            "url": "https://example.com/b",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "prediction": {
+          "uses_per_month": 6,
+          "months": 60
+        }
+      },
+      "expect_verdict": "DONT_BUY",
+      "expect_blocking": [],
+      "expect_ok": true
+    },
+    {
+      "id": "P03",
+      "name": "需跨月支出：强制暂缓而不是购买",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "显示器",
+          "price": 2600,
+          "category": "数码/显示器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧显示器色偏已经影响修图"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "两家自营同价，无溢价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "2600",
+            "value": 2600,
+            "source_type": "authorized_retail",
+            "url": "https://example.com/c",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "下个月发钱后，或降到 2200 以下",
+        "prediction": {
+          "uses_per_month": 30,
+          "months": 60
+        }
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true
+    },
+    {
+      "id": "P04",
+      "name": "等级不能自己往下调",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "level": "L1",
+        "product": {
+          "name": "显示器",
+          "price": 3000,
+          "category": "数码/显示器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧显示器出现坏点影响修图"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "两家自营同价"
+          },
+          {
+            "code": "DURABILITY_GAIN",
+            "note": "预期使用五年以上"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "3000",
+            "value": 3000,
+            "source_type": "authorized_retail",
+            "url": "https://example.com/d",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_level": "L3",
+      "expect_blocking": [
+        "AUD_LEVEL_DOWNGRADED"
+      ],
+      "expect_ok": false
+    },
+    {
+      "id": "P05",
+      "name": "外币价格没有汇率证据：阻断而不是硬比",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某耳机",
+          "price": 899,
+          "currency": "USD",
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧耳机降噪失效已三个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官网就是这个价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "899 USD",
+            "value": 899,
+            "currency": "USD",
+            "source_type": "official",
+            "url": "https://example.com/e",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "prediction": {
+          "uses_per_month": 20,
+          "months": 36
+        }
+      },
+      "expect_blocking": [
+        "EV_CURRENCY_UNCONVERTED",
+        "AUD_BUY_NO_PRICE",
+        "AUD_EVIDENCE_BLOCKING"
+      ],
+      "expect_ok": false
+    },
+    {
+      "id": "P06",
+      "name": "外币有汇率证据：换算后正常判断",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某耳机",
+          "price": 100,
+          "currency": "USD",
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧耳机降噪失效已三个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官网价与第三方一致"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "100 USD",
+            "value": 100,
+            "currency": "USD",
+            "source_type": "official",
+            "url": "https://example.com/f",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "fx",
+            "claim": "USD/CNY 7.10",
+            "value": 7.1,
+            "base": "USD",
+            "quote": "CNY",
+            "source_type": "official",
+            "url": "https://example.com/fx",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "prediction": {
+          "uses_per_month": 20,
+          "months": 36
+        }
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true
+    },
+    {
+      "id": "P07",
+      "name": "订阅没写计费周期：年度成本不可信，阻断",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某 AI 会员",
+          "price": 200,
+          "category": "会员/订阅"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天用来写代码和查资料"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官网就是这个价，没有更低的"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "可以随时取消，不绑年"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "200",
+            "value": 200,
+            "source_type": "official",
+            "url": "https://example.com/g",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_level": "L3",
+      "expect_blocking": [
+        "AUD_SUBSCRIPTION_PERIOD"
+      ],
+      "expect_ok": false
+    },
+    {
+      "id": "P08",
+      "name": "年付订阅：按真实周期算年化",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某云服务年付",
+          "price": 1188,
+          "period": "year",
+          "category": "云服务/订阅"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "部署个人项目已经跑了半年"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "年付比月付省 20%，官网明码"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "可按月补差价升级"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "年付 1188",
+            "value": 1188,
+            "source_type": "official",
+            "url": "https://example.com/h",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true
+    },
+    {
+      "id": "P09",
+      "name": "替代方案没有价格：不能给明确替换建议",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌人体工学椅",
+          "price": 2680,
+          "category": "家具/椅子"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天坐八小时，腰疼两个月"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "腰靠加坐垫能覆盖主要需求"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "同规格国产 1200-1600"
+          }
+        ],
+        "alternative": {
+          "name": "记忆棉腰靠 + 坐垫",
+          "source": "某平台自营 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "2680",
+            "value": 2680,
+            "source_type": "official",
+            "url": "https://example.com/i",
+            "observed_at": "2026-10-27"
+          }
+        ],
+        "prediction": {
+          "uses_per_month": 20,
+          "months": 60
+        }
+      },
+      "expect_verdict": "SWITCH",
+      "expect_blocking": [
+        "AUD_ALT_NO_PRICE"
+      ],
+      "expect_ok": false
+    },
+    {
+      "id": "P10",
+      "name": "理由只有码没有具体依据",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某电水壶",
+          "price": 399,
+          "category": "家居"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "三家自营报价 379-419"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "399",
+            "value": 399,
+            "source_type": "official",
+            "url": "https://example.com/j",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_blocking": [
+        "AUD_REASON_NO_NOTE"
+      ],
+      "expect_ok": false
+    },
+    {
+      "id": "P11",
+      "name": "负数价格必须拦下",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某耳机",
+          "price": 899,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧耳机降噪失效已三个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官网价与自营一致"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "返现后 -500",
+            "value": -500,
+            "source_type": "third_party",
+            "url": "https://example.com/k",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_blocking": [
+        "EV_PRICE_VALUE_INVALID",
+        "AUD_EVIDENCE_BLOCKING"
+      ],
+      "expect_ok": false
+    },
+    {
+      "id": "P12",
+      "name": "非法日期必须拦下",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某耳机",
+          "price": 899,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧耳机降噪失效已三个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官网价与自营一致"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "official",
+            "url": "https://example.com/l",
+            "observed_at": "2026-13-45"
+          }
+        ]
+      },
+      "expect_blocking": [
+        "EV_BAD_DATE",
+        "AUD_EVIDENCE_BLOCKING"
+      ],
+      "expect_ok": false
+    },
+    {
+      "id": "P13",
+      "name": "完整性门与一致性门分开：证据过期但结论本身自洽",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某耳机",
+          "price": 1999,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天地铁通勤两小时"
+          },
+          {
+            "code": "PRICE_STALE",
+            "note": "手上是八月的截图，已三个月"
+          },
+          {
+            "code": "TIMING_ADVERSE",
+            "note": "官方预告下月发新款"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1999",
+            "value": 1999,
+            "source_type": "third_party",
+            "url": "https://example.com/m",
+            "observed_at": "2026-08-20"
+          }
+        ],
+        "recheck_condition": "新款发布后重新取价"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_gate": {
+        "integrity": false,
+        "coherence": true,
+        "financial": true
+      },
+      "why": "价格过期是暂缓的理由，不是记录缺陷。两个门必须分开看。"
+    },
+    {
+      "id": "P14",
+      "name": "一致性门单独失败：暂缓却没写复查条件",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某耳机",
+          "price": 1299,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "IMPULSE_SIGNAL",
+            "note": "看到限时折扣才起意"
+          },
+          {
+            "code": "INFO_GAP",
+            "note": "没说清主要用来干什么"
+          },
+          {
+            "code": "PRICE_UNVERIFIED",
+            "note": "没查到近两周公开报价"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1299",
+            "value": 1299,
+            "source_type": "official",
+            "url": "https://example.com/n",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [
+        "AUD_DEFER_NO_RECHECK"
+      ],
+      "expect_ok": false,
+      "expect_gate": {
+        "integrity": true,
+        "coherence": false
+      }
+    },
+    {
+      "id": "P15",
+      "name": "违反自设硬约束（不买二手）必须强制否决",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 5000
+        },
+        "constraints": {
+          "no_used": true
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "二手相机机身",
+          "price": 2000,
+          "condition": "used",
+          "category": "数码/相机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "想学摄影，已经拍了一个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "二手行情价，没有溢价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "二手残值稳定"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "2000",
+            "value": 2000,
+            "source_type": "third_party",
+            "url": "https://example.com/o",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "DONT_BUY",
+      "expect_blocking": [],
+      "expect_ok": true
+    },
+    {
+      "id": "P16",
+      "name": "重决策但没填预算：先阻断，要求补画像",
+      "profile": {
+        "facts": {}
+      },
+      "draft": {
+        "product": {
+          "name": "显示器",
+          "price": 3000,
+          "category": "数码/显示器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧显示器坏点影响修图"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "两家自营同价"
+          },
+          {
+            "code": "DURABILITY_GAIN",
+            "note": "预期使用五年以上"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "3000",
+            "value": 3000,
+            "source_type": "authorized_retail",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_blocking": [
+        "FIN_BUDGET_UNKNOWN"
+      ],
+      "expect_ok": false
+    },
+    {
+      "id": "P17",
+      "name": "人工驳回不能把暂缓升级成购买",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某联名水杯",
+          "price": 399,
+          "category": "家居"
+        },
+        "reasons": [
+          {
+            "code": "IMPULSE_SIGNAL",
+            "note": "看到限时联名才想买"
+          },
+          {
+            "code": "INFO_GAP",
+            "note": "家里已有三个水杯"
+          }
+        ],
+        "override": {
+          "verdict": "BUY",
+          "reason": "我就想买"
+        },
+        "recheck_condition": "一周后如果还想要再说",
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "399",
+            "value": 399,
+            "source_type": "official",
+            "url": "https://example.com/q",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true
+    },
+    {
+      "id": "P18",
+      "name": "只有口述价格不能支撑建议购买",
+      "profile": {
+        "facts": {
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某耳机",
+          "price": 899,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧耳机降噪失效已三个月"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "店员说这个价是最低的"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "店员报价 899",
+            "value": 899,
+            "source_type": "user_provided",
+            "observed_at": "2026-10-29"
+          }
+        ]
+      },
+      "expect_blocking": [
+        "AUD_PRICE_UNVERIFIED"
+      ],
+      "expect_ok": false
+    }
+  ]
+}

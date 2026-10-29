@@ -21,3 +21,8 @@ tests/last-run.txt
 .idea/
 .DS_Store
 Thumbs.db
+
+# 本地测试沙盒（不得入库）
+.repro*/
+.sim/
+.tmp/

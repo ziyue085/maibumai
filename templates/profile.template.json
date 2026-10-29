@@ -1,0 +1,144 @@
+{
+  "schema_version": 2,
+  "_howto": [
+    "这是结构模板，全部是空值。复制到 ~/.maibumai/profile.json 手填，",
+    "或者直接用 `python scripts/mbm.py profile set 键=值` 逐项写入（推荐）。",
+    "查看还缺什么：`python scripts/mbm.py profile gaps`。",
+    "填完不需要手动改 updated_at，命令会自动记当天日期。",
+    "本文件只放模板，任何真实数字都不要提交到仓库。"
+  ],
+  "created_at": null,
+  "updated_at": null,
+  "meta": {
+    "base_currency": "CNY",
+    "owner_label": ""
+  },
+  "facts": {
+    "finance.monthly_income": {
+      "value": null,
+      "updated_at": "",
+      "note": "每月固定进账大概多少？（生活费 + 兼职 + 奖学金，按月均算）"
+    },
+    "finance.monthly_fixed_expense": {
+      "value": null,
+      "updated_at": "",
+      "note": "每月固定支出大概多少？（吃住行话费，不含可选消费）"
+    },
+    "invest.monthly_contribution": {
+      "value": null,
+      "updated_at": "",
+      "note": "每月投到投资里的钱大概多少？"
+    },
+    "finance.savings_target_monthly": {
+      "value": null,
+      "updated_at": "",
+      "note": "每月打算存下多少？"
+    },
+    "finance.hard_cap_single": {
+      "value": null,
+      "updated_at": "",
+      "note": "有没有一条单笔绝对不越过的金额线？没有就说没有"
+    },
+    "finance.emergency_fund": {
+      "value": null,
+      "updated_at": "",
+      "note": "应急金现在有多少？（随时能取出来的部分）"
+    },
+    "invest.capital": {
+      "value": null,
+      "updated_at": "",
+      "note": "目前可投资本金大概多少？（不含应急金）"
+    },
+    "goal.name": {
+      "value": null,
+      "updated_at": "",
+      "note": "现在最主要的一个攒钱目标是什么？"
+    },
+    "goal.monthly": {
+      "value": null,
+      "updated_at": "",
+      "note": "每月为这个目标存多少？"
+    },
+    "life.stage": {
+      "value": null,
+      "updated_at": "",
+      "note": "现在的身份或阶段？（在读 / 工作 / 其他）"
+    },
+    "life.living": {
+      "value": null,
+      "updated_at": "",
+      "note": "居住环境？（宿舍 / 合租 / 独居；有无厨房、空间大小、能否改造）"
+    },
+    "pref.price_sensitivity": {
+      "value": null,
+      "updated_at": "",
+      "note": "你对价格敏感吗？（高 / 中 / 低）"
+    },
+    "pref.quality_vs_price": {
+      "value": null,
+      "updated_at": "",
+      "note": "同等条件下更看重质量还是价格？（质量优先 / 均衡 / 价格优先）"
+    },
+    "pref.used_ok": {
+      "value": null,
+      "updated_at": "",
+      "note": "二手可以接受吗？（是 / 否）"
+    },
+    "invest.expected_annual_return": {
+      "value": null,
+      "updated_at": "",
+      "note": "给投资设定的长期年化预期是多少？只用于机会成本演示，可以留空"
+    },
+    "invest.plan": {
+      "value": null,
+      "updated_at": "",
+      "note": "一句话说下你的投资思路？"
+    },
+    "goal.target": {
+      "value": null,
+      "updated_at": "",
+      "note": "这个目标一共要多少钱？"
+    },
+    "life.city": {
+      "value": null,
+      "updated_at": "",
+      "note": "常住城市？"
+    },
+    "pref.durability_weight": {
+      "value": null,
+      "updated_at": "",
+      "note": "耐用性对你重要吗？（高 / 中 / 低）"
+    },
+    "pref.convenience_weight": {
+      "value": null,
+      "updated_at": "",
+      "note": "便利性对你重要吗？（高 / 中 / 低）"
+    },
+    "interests.list": {
+      "value": null,
+      "updated_at": "",
+      "note": "长期在投入的兴趣或领域有哪些？几个词就行"
+    },
+    "finance.single_purchase_threshold": {
+      "value": null,
+      "updated_at": "",
+      "note": "单笔超过多少你会觉得需要认真想想？"
+    },
+    "finance.discretionary_override": {
+      "value": null,
+      "updated_at": "",
+      "note": "（可选）想直接指定每月可自由支配金额吗？留空则自动推算"
+    }
+  },
+  "constraints": {
+    "no_used": false,
+    "no_subscription": false,
+    "must_be_portable": false,
+    "notes": ""
+  },
+  "behavior": {
+    "impulse_cooldown_hours": 72,
+    "small_amount_fastpath": 100,
+    "review_days": 60
+  }
+}

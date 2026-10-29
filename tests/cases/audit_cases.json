@@ -1,7 +1,7 @@
 {
   "meta": {
-    "purpose": "输出审计夹具。检查结论是否自洽、是否具体、是否可核验。",
-    "legend": "expect_ok=true 表示零阻断（反向对照）；expect 中列出的 code 必须出现在 BLOCK 级发现里。"
+    "purpose": "输出审计夹具。检查结论是否自洽、具体、可核验。",
+    "legend": "expect 必须全部出现；多出的阻断必须在 allow 里。expect_ok=true 表示零阻断。"
   },
   "cases": [
     {
@@ -13,9 +13,12 @@
         "verdict": "DEFER",
         "level": "L2",
         "product": {"name": "某平板", "price": 2499},
-        "reasons": [{"code": "IMPULSE_SIGNAL"}, {"code": "PRICE_UNVERIFIED"}]
+        "reasons": [
+          {"code": "IMPULSE_SIGNAL", "note": "看到限时折扣才想买"},
+          {"code": "PRICE_UNVERIFIED", "note": "没查到近两周的公开报价"}
+        ]
       },
-      "why": "'再想想'不是答案。暂缓必须说清什么条件下可以买。"
+      "why": "『再想想』不是答案。暂缓必须说清什么条件下可以买。"
     },
     {
       "id": "A02",
@@ -26,12 +29,15 @@
         "verdict": "BUY",
         "level": "L2",
         "product": {"name": "某耳机", "price": 899},
-        "reasons": [{"code": "NEED_REAL"}, {"code": "AFFORDABLE_WITHIN_BUDGET"}],
+        "reasons": [
+          {"code": "NEED_REAL", "note": "旧耳机降噪失效已三个月"},
+          {"code": "AFFORDABLE_WITHIN_BUDGET", "note": "占月可支配四成"}
+        ],
         "evidence": [
           {"kind": "price", "value": 899, "source_type": "user_provided", "observed_at": "2026-10-29"}
         ]
       },
-      "why": "口述价格可以用于暂缓，但不能用来断言'价格合理'。"
+      "why": "口述价格可以用于暂缓，但不能用来断言『价格合理』。"
     },
     {
       "id": "A03",
@@ -42,7 +48,10 @@
         "verdict": "BUY",
         "level": "L2",
         "product": {"name": "某联名球鞋", "price": 1299},
-        "reasons": [{"code": "NEED_REAL"}, {"code": "IMPULSE_SIGNAL"}],
+        "reasons": [
+          {"code": "NEED_REAL", "note": "常穿的那双鞋底已磨穿"},
+          {"code": "IMPULSE_SIGNAL", "note": "看到联名款才起意购买"}
+        ],
         "evidence": [
           {"kind": "price", "value": 1299, "source_type": "official", "url": "https://example.com/a", "observed_at": "2026-10-29"}
         ]
@@ -59,7 +68,10 @@
         "level": "L2",
         "product": {"name": "某咖啡机", "price": 3200},
         "summary": "这个主要看你自己，因人而异。",
-        "reasons": [{"code": "INFO_GAP"}, {"code": "PRICE_UNVERIFIED"}],
+        "reasons": [
+          {"code": "INFO_GAP", "note": "没说要做什么类型的咖啡"},
+          {"code": "PRICE_UNVERIFIED", "note": "没有型号无法比价"}
+        ],
         "recheck_condition": "补上型号与使用频率后再看"
       },
       "why": "用户要的是判断，不是被反问。"
@@ -74,12 +86,15 @@
         "level": "L2",
         "product": {"name": "某显示器", "price": 1499},
         "summary": "这是历史最低价，可以入手。",
-        "reasons": [{"code": "NEED_REAL"}, {"code": "PRICE_FAIR"}],
+        "reasons": [
+          {"code": "NEED_REAL", "note": "旧显示器出现三处坏点"},
+          {"code": "PRICE_FAIR", "note": "三家自营报价一致"}
+        ],
         "evidence": [
           {"kind": "price", "value": 1499, "source_type": "official", "url": "https://example.com/b", "observed_at": "2026-10-28"}
         ]
       },
-      "why": "没有价格曲线就断言'历史最低'是编造。"
+      "why": "没有价格曲线就断言『历史最低』是编造。"
     },
     {
       "id": "A06",
@@ -90,7 +105,10 @@
         "verdict": "BUY",
         "level": "L2",
         "product": {"name": "某相机", "price": 1999},
-        "reasons": [{"code": "NEED_REAL"}, {"code": "PRICE_FAIR"}],
+        "reasons": [
+          {"code": "NEED_REAL", "note": "旧相机快门组件损坏"},
+          {"code": "PRICE_FAIR", "note": "查过两家都在这个区间"}
+        ],
         "evidence": [
           {"kind": "price", "value": 2399, "source_type": "official", "url": "https://example.com/c", "observed_at": "2026-10-28"}
         ]
@@ -106,9 +124,13 @@
         "verdict": "DONT_BUY",
         "level": "L2",
         "product": {"name": "某露营天幕", "price": 780},
-        "reasons": [{"code": "INFO_GAP"}, {"code": "USAGE_IMPLAUSIBLE"}, {"code": "IMPULSE_SIGNAL"}]
+        "reasons": [
+          {"code": "INFO_GAP", "note": "说不清一年会用几次"},
+          {"code": "USAGE_IMPLAUSIBLE", "note": "之前买的两件露营装备都闲置"},
+          {"code": "IMPULSE_SIGNAL", "note": "刷到露营视频就想要"}
+        ]
       },
-      "why": "'不建议买'必须有硬理由，不能凭感觉否决。"
+      "why": "『不建议买』必须有硬理由，不能凭感觉否决。"
     },
     {
       "id": "A08",
@@ -119,8 +141,12 @@
         "verdict": "DEFER",
         "level": "L2",
         "product": {"name": "某音箱", "price": 600},
-        "reasons": [{"code": "NEED_REAL"}, {"code": "FEELS_RISKY"}],
-        "recheck_condition": "看到实物后再定"
+        "reasons": [
+          {"code": "NEED_REAL", "note": "每天听播客两小时"},
+          {"code": "PRICE_UNVERIFIED", "note": "没有查到公开报价"},
+          {"code": "FEELS_RISKY", "note": "感觉不太对"}
+        ],
+        "recheck_condition": "看到实物后再判断"
       },
       "why": "自由发挥的规则码会让整个判定体系失效。"
     },
@@ -133,10 +159,16 @@
         "verdict": "SWITCH",
         "level": "L2",
         "product": {"name": "某品牌跑步机", "price": 4200},
-        "reasons": [{"code": "NEED_REAL"}, {"code": "SUBSTITUTE_ADEQUATE"}],
-        "alternative": {}
+        "reasons": [
+          {"code": "NEED_REAL", "note": "想在家跑步但外面太冷"},
+          {"code": "SUBSTITUTE_ADEQUATE", "note": "健身房月卡也能满足"}
+        ],
+        "alternative": {},
+        "evidence": [
+          {"kind": "price", "value": 4200, "source_type": "official", "url": "https://example.com/f", "observed_at": "2026-10-28"}
+        ]
       },
-      "why": "'有更好的选择'必须说出是哪个、多少钱。"
+      "why": "『有更好的选择』必须说出是哪个、多少钱。"
     },
     {
       "id": "A10",
@@ -148,8 +180,8 @@
         "level": "L2",
         "product": {"name": "某品牌电饭煲 3L", "price": 399, "category": "家电/厨电"},
         "reasons": [
-          {"code": "NEED_REAL", "note": "旧的坏了，每天做饭"},
-          {"code": "DURABILITY_GAIN", "note": "预期使用 5 年"},
+          {"code": "NEED_REAL", "note": "旧的内胆涂层脱落，每天做饭"},
+          {"code": "DURABILITY_GAIN", "note": "预期使用五年以上"},
           {"code": "PRICE_FAIR", "note": "三家自营报价 379-419"}
         ],
         "evidence": [
@@ -169,13 +201,16 @@
         "verdict": "BUY",
         "level": "L2",
         "product": {"name": "某显卡", "price": 3299, "category": "数码/电脑"},
-        "reasons": [{"code": "NEED_REAL"}, {"code": "PRICE_FAIR"}],
+        "reasons": [
+          {"code": "NEED_REAL", "note": "现有显卡剪 4K 严重卡顿"},
+          {"code": "PRICE_FAIR", "note": "查过两家价格接近"}
+        ],
         "evidence": [
-          {"kind": "price", "value": 3299, "source_type": "authorized_retail", "url": "https://example.com/f", "observed_at": "2026-06-01"}
+          {"kind": "price", "value": 3299, "source_type": "authorized_retail", "url": "https://example.com/g", "observed_at": "2026-06-01"}
         ],
         "as_of": "2026-10-29"
       },
-      "why": "半年前的价格不能支撑今天的'价格合理'。"
+      "why": "半年前的价格不能支撑今天的『价格合理』。"
     },
     {
       "id": "A12",
@@ -186,9 +221,12 @@
         "verdict": "DEFER",
         "level": "L2",
         "product": {"name": "某投影仪", "price": 2699},
-        "reasons": [{"code": "INFO_GAP"}, {"code": "PRICE_UNVERIFIED"}],
+        "reasons": [
+          {"code": "INFO_GAP", "note": "说不清每周会用几次"},
+          {"code": "PRICE_UNVERIFIED", "note": "没有查到公开报价"}
+        ],
         "numbers": {"cost_per_use": 12.5},
-        "recheck_condition": "确认每周使用次数后再算"
+        "recheck_condition": "确认使用频率后再算"
       },
       "why": "没有价格与频率就算出单次成本，必是编的。"
     },
@@ -201,12 +239,95 @@
         "verdict": "BUY",
         "level": "L2",
         "product": {"name": "某台灯", "price": 399, "category": "家居"},
-        "reasons": [{"code": "NEED_REAL"}],
+        "reasons": [{"code": "NEED_REAL", "note": "书桌照明不足影响看书写字"}],
         "evidence": [
           {"kind": "price", "value": 399, "source_type": "authorized_retail", "url": "https://example.com/k", "observed_at": "2026-10-28"}
         ]
       },
       "why": "一条理由的结论不可复盘，也无法判断是否漏掉了关键因素。"
+    },
+    {
+      "id": "A14",
+      "name": "理由只有码没有具体依据",
+      "expect_ok": false,
+      "expect": ["AUD_REASON_NO_NOTE"],
+      "decision": {
+        "verdict": "BUY",
+        "level": "L2",
+        "product": {"name": "某电水壶", "price": 399, "category": "家居"},
+        "reasons": [
+          {"code": "NEED_REAL"},
+          {"code": "PRICE_FAIR", "note": "三家自营报价 379-419"},
+          {"code": "LOW_REGRET_RISK", "note": "支持七天无理由退货"}
+        ],
+        "evidence": [
+          {"kind": "price", "value": 399, "source_type": "official", "url": "https://example.com/l", "observed_at": "2026-10-28"}
+        ]
+      },
+      "why": "没有具体事实的理由，事后无法复核，也无法用来校准。"
+    },
+    {
+      "id": "A15",
+      "name": "把等级标低以绕过重决策审核",
+      "expect_ok": false,
+      "expect": ["AUD_LEVEL_DOWNGRADED"],
+      "computed_level": "L3",
+      "decision": {
+        "verdict": "BUY",
+        "level": "L1",
+        "product": {"name": "某品牌显示器", "price": 2680, "category": "数码/显示器"},
+        "reasons": [
+          {"code": "NEED_REAL", "note": "旧显示器色偏影响修图"},
+          {"code": "PRICE_FAIR", "note": "两家自营同价"},
+          {"code": "DURABILITY_GAIN", "note": "预期使用五年"}
+        ],
+        "evidence": [
+          {"kind": "price", "value": 2680, "source_type": "authorized_retail", "url": "https://example.com/m", "observed_at": "2026-10-28"}
+        ]
+      },
+      "why": "等级是审核强度的开关，不能由被审对象自己调低。"
+    },
+    {
+      "id": "A16",
+      "name": "替代方案没有来源",
+      "expect_ok": false,
+      "expect": ["AUD_ALT_NO_SOURCE"],
+      "decision": {
+        "verdict": "SWITCH",
+        "level": "L2",
+        "product": {"name": "某品牌机械键盘", "price": 1299, "category": "数码/外设"},
+        "reasons": [
+          {"code": "NEED_REAL", "note": "每天写代码十小时手酸"},
+          {"code": "SUBSTITUTE_ADEQUATE", "note": "同规格国产品牌便宜一半"}
+        ],
+        "alternative": {"name": "某国产 87 键", "price": 599},
+        "evidence": [
+          {"kind": "price", "value": 1299, "source_type": "official", "url": "https://example.com/n", "observed_at": "2026-10-28"}
+        ]
+      },
+      "why": "没有来源的替代品，用户无法核实是否真的买得到。"
+    },
+    {
+      "id": "A17",
+      "name": "订阅没有说明计费周期",
+      "expect_ok": false,
+      "expect": ["AUD_SUBSCRIPTION_PERIOD"],
+      "decision": {
+        "verdict": "BUY",
+        "level": "L2",
+        "kind": "subscription",
+        "product": {"name": "某 AI 会员", "price": 200, "category": "会员/订阅"},
+        "reasons": [
+          {"code": "NEED_REAL", "note": "每天用来写代码"},
+          {"code": "AFFORDABLE_WITHIN_BUDGET", "note": "占月可支配一成"},
+          {"code": "PRICE_FAIR", "note": "官网就是这个价"}
+        ],
+        "numbers": {"annual_cost": null},
+        "evidence": [
+          {"kind": "price", "value": 200, "source_type": "official", "url": "https://example.com/o", "observed_at": "2026-10-28"}
+        ]
+      },
+      "why": "200 元是月付还是年付，差 12 倍。不知道周期就算不出年度成本。"
     }
   ]
 }

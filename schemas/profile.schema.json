@@ -1,54 +1,51 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/ziyue085/maibumai/schemas/profile.schema.json",
-  "title": "maibumai profile",
-  "description": "个人画像。除 currency 外全部允许为 null —— 不知道就不填，不猜。",
+  "title": "maibumai profile v2",
+  "description": "个人画像。按事实存储，每条带 updated_at，过期需重新确认。值允许为 null —— 不知道就不填，不猜。",
   "type": "object",
   "properties": {
-    "schema_version": {"type": "integer"},
+    "schema_version": {"type": "integer", "const": 2},
+    "created_at": {"type": ["string", "null"]},
     "updated_at": {"type": ["string", "null"]},
-    "currency": {"type": "string", "default": "CNY"},
-    "budget": {
+    "meta": {
       "type": "object",
       "properties": {
-        "discretionary_monthly": {
-          "type": ["number", "null"],
-          "description": "每月扣掉固定支出与储蓄后，可自由支配的金额。判断'买不买得起'的唯一基准。"
-        },
-        "single_purchase_threshold": {
-          "type": ["number", "null"],
-          "description": "单笔超过多少就要走重决策。留空时按月可支配的 10%（下限 300）推算。"
-        },
-        "hard_cap_single": {
-          "type": ["number", "null"],
-          "description": "自设单笔硬上限，超过直接不建议购买。"
-        },
-        "savings_goal": {
-          "type": "object",
-          "properties": {
-            "name": {"type": ["string", "null"]},
-            "target": {"type": ["number", "null"]},
-            "monthly": {"type": ["number", "null"], "description": "每月为这个目标存多少。用于把消费翻译成'推迟了几个月'。"}
-          }
-        }
+        "base_currency": {"type": "string", "default": "CNY", "description": "所有金额的计价基准"},
+        "owner_label": {"type": "string", "description": "可留空；仅本机显示用"}
       }
     },
-    "taste": {
+    "facts": {
       "type": "object",
+      "description": "扁平事实表。键名与保鲜期见 references/profile-system.md",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "value": {"type": ["number", "boolean", "string", "array", "null"]},
+          "updated_at": {"type": "string", "description": "YYYY-MM-DD"},
+          "note": {"type": "string"}
+        },
+        "required": ["value", "updated_at"]
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "description": "硬约束：为 true 时违反即不建议购买，由引擎强制判定",
       "properties": {
-        "values": {"type": "array", "items": {"type": "string"}, "description": "例如 少而精 / 耐用 / 体验优先"},
-        "avoid": {"type": "array", "items": {"type": "string"}, "description": "例如 凑单 / 囤货 / 联名"},
-        "notes": {"type": "string"}
+        "no_used": {"type": "boolean", "default": false, "description": "不买二手"},
+        "no_subscription": {"type": "boolean", "default": false, "description": "不再增加订阅"},
+        "must_be_portable": {"type": "boolean", "default": false, "description": "必须可携带"},
+        "notes": {"type": "string", "description": "自由文本约束，由模型自行判断"}
       }
     },
     "behavior": {
       "type": "object",
       "properties": {
         "impulse_cooldown_hours": {"type": "integer", "default": 72},
-        "small_amount_fastpath": {"type": "number", "default": 100, "description": "低于此金额走 L1 快判"},
-        "review_days": {"type": "integer", "default": 60, "description": "购买后多少天提醒复盘"}
+        "small_amount_fastpath": {"type": "number", "default": 100},
+        "review_days": {"type": "integer", "default": 60}
       }
     }
   },
-  "required": ["schema_version", "currency"]
+  "required": ["schema_version", "facts"]
 }

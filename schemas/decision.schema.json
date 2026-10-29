@@ -2,20 +2,26 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/ziyue085/maibumai/schemas/decision.schema.json",
   "title": "maibumai decision draft",
-  "description": "一次消费决策的草稿。mbm.py check 读它、校验它、解析结论；mbm.py log 写入账本。",
+  "description": "一次消费决策的草稿。mbm.py check 校验它，mbm.py judge 校验并落账。",
   "type": "object",
   "properties": {
     "id": {"type": "string", "description": "留空则自动生成 YYYYMMDD-HHMM-xxxx"},
-    "level": {"type": "string", "enum": ["L1", "L2", "L3"], "description": "留空则按价格与品类自动判定"},
-    "as_of": {"type": "string", "description": "校验基准日 YYYY-MM-DD，默认今天。用于复现历史判断"},
+    "level": {"type": "string", "enum": ["L1", "L2", "L3"], "description": "只能往上调；低于系统判定会被拦"},
+    "as_of": {"type": "string", "description": "校验基准日 YYYY-MM-DD，默认今天"},
     "product": {
       "type": "object",
       "properties": {
         "name": {"type": "string"},
-        "price": {"type": ["number", "null"], "description": "到手价，不是标价"},
-        "currency": {"type": "string", "default": "CNY"},
-        "category": {"type": "string", "description": "如 数码/耳机、家具/椅子、演出/门票"},
-        "period": {"type": "string", "enum": ["once", "month", "year"], "description": "订阅类填 month/year，用于年化"},
+        "price": {"type": ["number", "null"], "description": "到手价，必须是正数"},
+        "currency": {"type": "string", "default": "CNY", "description": "与画像基准币种不同时必须给 fx 证据"},
+        "category": {"type": "string", "description": "如 数码/耳机、家具/椅子、会员/订阅"},
+        "period": {
+          "type": "string",
+          "enum": ["once", "month", "quarter", "year"],
+          "description": "订阅必填；缺失时按重决策处理，且阻断购买类结论"
+        },
+        "condition": {"type": "string", "description": "new / used / refurbished，用于约束检查"},
+        "portable": {"type": ["boolean", "null"]},
         "url": {"type": "string"},
         "spec": {"type": "string"},
         "note": {"type": "string"}
@@ -25,19 +31,19 @@
     "reasons": {
       "type": "array",
       "minItems": 1,
-      "description": "规则码 + 具体依据。码表见 references/decision-rules.md",
+      "description": "规则码 + 具体依据。L2 至少 2 条、L3 至少 3 条；note 少于 6 字会被拦",
       "items": {
         "type": "object",
         "properties": {
           "code": {"type": "string"},
           "note": {"type": "string", "description": "谁、多少、什么时候——写成别人能复核的一句话"}
         },
-        "required": ["code"]
+        "required": ["code", "note"]
       }
     },
     "alternative": {
       "type": ["object", "null"],
-      "description": "建议替换方案时必填",
+      "description": "建议替换方案时必填，且必须有价格与来源",
       "properties": {
         "name": {"type": "string"},
         "price": {"type": ["number", "null"]},
@@ -52,15 +58,18 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": {"type": "string", "enum": ["price", "promo", "price_history", "spec", "review", "safety", "other"]},
+          "kind": {"type": "string", "enum": ["price", "promo", "price_history", "spec", "review", "safety", "fx", "other"]},
           "claim": {"type": "string"},
           "value": {"type": ["number", "null"]},
+          "currency": {"type": "string"},
           "subject": {
             "type": "string",
             "enum": ["target", "reference"],
             "default": "target",
-            "description": "target=被评估商品本身；reference=用来比价的参照商品（不参与价格冲突检测）"
+            "description": "target=被评估商品；reference=用来比价的参照商品（不参与冲突检测）"
           },
+          "base": {"type": "string", "description": "仅 fx 类：源币种"},
+          "quote": {"type": "string", "description": "仅 fx 类：目标币种"},
           "source_type": {"type": "string", "enum": ["official", "authorized_retail", "third_party", "user_provided", "ugc"]},
           "url": {"type": "string"},
           "observed_at": {"type": "string", "description": "YYYY-MM-DD"}
@@ -73,7 +82,7 @@
       "description": "对未来的预测，用于日后校准。宁可填得保守，不要填得漂亮。",
       "properties": {
         "uses_per_month": {"type": ["number", "null"]},
-        "months": {"type": ["number", "null"], "description": "预计持有月数"},
+        "months": {"type": ["number", "null"]},
         "satisfaction": {"type": ["integer", "null"], "minimum": 1, "maximum": 5}
       }
     },
@@ -81,7 +90,7 @@
     "recheck_condition": {"type": "string", "description": "结论为暂缓时必填：什么时点或什么条件下重新判断"},
     "override": {
       "type": ["object", "null"],
-      "description": "人工驳回。只能在无硬拦截时生效，且会被记录",
+      "description": "人工调整。只能往更保守的方向走；不能把暂缓改成购买，也不能绕过硬拦截",
       "properties": {
         "verdict": {"type": "string", "enum": ["BUY", "SWITCH", "DEFER", "DONT_BUY"]},
         "reason": {"type": "string"}

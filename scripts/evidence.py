@@ -192,6 +192,27 @@ def to_base(items, base="CNY", product=None, as_of=None):
     return items, product, findings
 
 
+def valid_url(url) -> bool:
+    """公开版本：其他地方要判断「这条报价有没有可点开的出处」。"""
+    return _valid_url(str(url or "").strip())
+
+
+def item_freshness(kind, observed_at, as_of=None, price_class="durable"):
+    """一条证据的时效结论：(是否可用, 距今天数, 保鲜期上限)。
+
+    日期缺失、不可解析、在未来、超过保鲜期，一律算不可用。
+    替代品报价要和目标商品用同一把尺，所以抽出来复用。
+    """
+    ref = _parse_date(as_of) or _dt.date.today()
+    when = _parse_date(observed_at)
+    if when is None or when > ref:
+        return False, None, None
+    limit_key = "price_fast" if (kind == "price" and price_class == "fast") else kind
+    limit = STALE_DAYS.get(limit_key, STALE_DAYS["price"])
+    age = (ref - when).days
+    return age <= limit, age, limit
+
+
 # ---------------------------------------------------------------------------
 # 主校验
 # ---------------------------------------------------------------------------

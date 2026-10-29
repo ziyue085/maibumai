@@ -43,8 +43,13 @@ def _load(name):
     return json.loads((CASES / name).read_text(encoding="utf-8"))["cases"]
 
 
-def _res(suite, cid, name, ok, detail=""):
-    return {"suite": suite, "id": cid, "name": name, "ok": ok, "detail": detail}
+def _res(suite, cid, name, ok, detail="", error=False):
+    """``error=True`` 表示这条用例是**抛异常**而不是断言失败。
+
+    变异测试要区分两者：抛异常说明变异把代码改崩了，不等于断言抓到了错误行为。
+    """
+    return {"suite": suite, "id": cid, "name": name, "ok": ok,
+            "detail": detail, "error": error}
 
 
 def _blocking(findings):
@@ -133,7 +138,8 @@ def run_calc():
         try:
             got = fn(*raw_args, **raw_kwargs)
         except Exception as exc:  # noqa: BLE001
-            out.append(_res("calc", c["id"], label, False, f"{c['fn']} 抛异常：{exc!r}"))
+            out.append(_res("calc", c["id"], label, False,
+                            f"{c['fn']} 抛异常：{exc!r}", error=True))
             continue
         bad = []
         for key, want in (c.get("expect") or {}).items():
@@ -164,6 +170,7 @@ def _fixture_profile(spec: dict) -> dict:
       - ``{"value": x, "days_ago": n}``：n 天前填的（测过期）
       - ``{"value": x, "confirmed": false}``：历史快照 / 别人给的数字（测未确认）
       - ``{"value": x, "no_date": true}``：有值但没日期（测手写画像绕过时效）
+      - ``{"value": x, "days_ahead": n}``：n 天后的日期（测未来日期）
     """
     import datetime as _dt
 
@@ -171,10 +178,11 @@ def _fixture_profile(spec: dict) -> dict:
     today = _dt.date.today()
     facts = {}
     for k, v in (spec.get("facts") or {}).items():
-        if isinstance(v, dict) and ("days_ago" in v or "confirmed" in v or v.get("no_date")):
+        if isinstance(v, dict) and ("days_ago" in v or "days_ahead" in v
+                                    or "confirmed" in v or v.get("no_date")):
             item = {"value": v.get("value")}
             if not v.get("no_date"):
-                days = int(v.get("days_ago") or 0)
+                days = int(v.get("days_ago") or 0) - int(v.get("days_ahead") or 0)
                 item["updated_at"] = (today - _dt.timedelta(days=days)).isoformat()
             if "confirmed" in v:
                 item["confirmed"] = v["confirmed"]
@@ -201,7 +209,8 @@ def run_pipeline():
         try:
             result = mbm._evaluate(draft, profile, owned)
         except Exception as exc:  # noqa: BLE001
-            out.append(_res("pipeline", c["id"], c["name"], False, f"抛异常：{exc!r}"))
+            out.append(_res("pipeline", c["id"], c["name"], False,
+                            f"抛异常：{exc!r}", error=True))
             continue
 
         actual = {f["code"] for f in result["blocking"]}
@@ -289,7 +298,8 @@ def run_ledger():
             result = mbm._evaluate(draft, profile, c.get("owned"))
             record = mbm._ledger_record(draft, result)
         except Exception as exc:  # noqa: BLE001
-            out.append(_res("ledger", c["id"], c["name"], False, f"抛异常：{exc!r}"))
+            out.append(_res("ledger", c["id"], c["name"], False,
+                            f"抛异常：{exc!r}", error=True))
             continue
 
         want_ok = c.get("expect_ok")
@@ -329,6 +339,130 @@ def run_ledger():
     return out
 
 
+def run_profile():
+    """画像时间边界：未来日期、缺日期、seed、v1 迁移。
+
+    这一层必须碰磁盘（seed / 迁移就是文件读写），所以用临时数据目录，
+    跑完删掉，绝不碰用户真实的 ``~/.maibumai``。
+    """
+    import datetime as _dt
+    import os
+    import shutil
+    import tempfile
+
+    out = []
+    today = _dt.date.today()
+    home = Path(tempfile.mkdtemp(prefix="mbm-profile-"))
+    old_env = os.environ.get("MAIBUMAI_HOME")
+
+    def check(cid, name, cond, detail=""):
+        out.append(_res("profile", cid, name, bool(cond), "" if cond else detail))
+
+    try:
+        os.environ["MAIBUMAI_HOME"] = str(home)
+        store.ensure_home()
+        store.save_profile(store.load_profile())
+
+        def put(key, value, **meta):
+            prof = store.load_profile()
+            store._set_fact_raw(prof, key, value, **meta)
+            store.save_profile(prof)
+            return store.load_profile()
+
+        # --- 未来日期
+        prof = put("finance.monthly_income", 2600,
+                   updated_at=(today + _dt.timedelta(days=400)).isoformat())
+        check("T01", "未来日期不算有效事实",
+              store.fact_stale(prof, "finance.monthly_income")
+              and store.fact_fresh(prof, "finance.monthly_income") is None,
+              store.fact_age(prof, "finance.monthly_income"))
+
+        # --- 只比今天晚几天：abs() 之类的"未来也当过去"会在这里露馅
+        prof = put("finance.hard_cap_single", 3000,
+                   updated_at=(today + _dt.timedelta(days=5)).isoformat())
+        check("T09", "只晚几天也算未来日期（不能取绝对值混过去）",
+              store.fact_stale(prof, "finance.hard_cap_single")
+              and store.fact_fresh(prof, "finance.hard_cap_single") is None,
+              store.fact_age(prof, "finance.hard_cap_single"))
+
+        # --- 缺日期
+        prof = put("finance.monthly_fixed_expense", 1100, updated_at="")
+        check("T02", "没有日期按不可信处理",
+              store.fact_stale(prof, "finance.monthly_fixed_expense"),
+              prof["facts"]["finance.monthly_fixed_expense"])
+
+        # --- 完整时间戳
+        prof = put("finance.savings_target_monthly", 300,
+                   updated_at=today.isoformat() + "T10:00:00+08:00")
+        check("T03", "完整 ISO 时间戳能解析",
+              store.fact_age(prof, "finance.savings_target_monthly") == 0
+              and not store.fact_stale(prof, "finance.savings_target_monthly"),
+              prof["facts"]["finance.savings_target_monthly"])
+
+        # --- set_fact 用今天
+        store.set_fact("invest.monthly_contribution", 400)
+        prof = store.load_profile()
+        check("T04", "用户刚填的值记为今天且已确认",
+              prof["facts"]["invest.monthly_contribution"]["updated_at"] == today.isoformat()
+              and prof["facts"]["invest.monthly_contribution"]["confirmed"] is True,
+              prof["facts"]["invest.monthly_contribution"])
+
+        # --- seed 没有 observed_at
+        profile = store.load_profile()
+        profile["facts"] = {}
+        store.save_profile(profile)
+        store.seed_facts({"finance.liquid_cash": {"value": 32000, "source": "口头"}})
+        prof = store.load_profile()
+        item = prof["facts"]["finance.liquid_cash"]
+        check("T05", "seed 缺 observed_at 不补今天",
+              item.get("updated_at") == "" and store.fact_stale(prof, "finance.liquid_cash"),
+              item)
+
+        # --- seed 带 observed_at
+        profile = store.load_profile()
+        profile["facts"] = {}
+        store.save_profile(profile)
+        store.seed_facts({"finance.liquid_cash": {"value": 32000,
+                                                  "observed_at": "2026-08-31",
+                                                  "source": "资产快照"}})
+        prof = store.load_profile()
+        check("T06", "seed 的 observed_at 原样保留",
+              prof["facts"]["finance.liquid_cash"]["updated_at"] == "2026-08-31",
+              prof["facts"]["finance.liquid_cash"])
+
+        # --- v1 迁移沿用旧时间
+        v1 = {"schema_version": 1, "updated_at": "2025-06-01T10:00:00+08:00",
+              "budget": {"discretionary_monthly": 2000, "hard_cap_single": 3000},
+              "currency": "CNY"}
+        (home / "profile.json").write_text(
+            json.dumps(v1, ensure_ascii=False), encoding="utf-8")
+        prof = store.load_profile()
+        item = prof["facts"]["finance.discretionary_override"]
+        check("T07", "v1 迁移不把旧数据刷新成今天",
+              item["updated_at"] == "2025-06-01T10:00:00+08:00"
+              and store.fact_stale(prof, "finance.discretionary_override"),
+              item)
+
+        # --- v1 无 updated_at
+        v1_no_date = {"schema_version": 1,
+                      "budget": {"discretionary_monthly": 2000}, "currency": "CNY"}
+        (home / "profile.json").write_text(
+            json.dumps(v1_no_date, ensure_ascii=False), encoding="utf-8")
+        prof = store.load_profile()
+        item = prof["facts"]["finance.discretionary_override"]
+        check("T08", "v1 没有时间戳时标记为日期不明",
+              item["updated_at"] == ""
+              and store.fact_stale(prof, "finance.discretionary_override"),
+              item)
+    finally:
+        if old_env is None:
+            os.environ.pop("MAIBUMAI_HOME", None)
+        else:
+            os.environ["MAIBUMAI_HOME"] = old_env
+        shutil.rmtree(home, ignore_errors=True)
+    return out
+
+
 SUITES = {
     "verdict": run_verdict,
     "audit": run_audit,
@@ -336,6 +470,7 @@ SUITES = {
     "calc": run_calc,
     "pipeline": run_pipeline,
     "ledger": run_ledger,
+    "profile": run_profile,
 }
 
 
@@ -344,7 +479,12 @@ def run_all(suites=None):
     for name, fn in SUITES.items():
         if suites and name not in suites:
             continue
-        results.extend(fn())
+        try:
+            results.extend(fn())
+        except Exception as exc:  # noqa: BLE001
+            # 整套崩了也要留痕，否则变异测试会把崩溃误当成"用例抓到了"
+            results.append(_res(name, "-", "套件异常", False,
+                                f"套件抛异常：{exc!r}", error=True))
     return results
 
 
@@ -373,6 +513,8 @@ def main(argv=None):
     for name, (total, bad) in by_suite.items():
         print(f"{name:10s} {total - bad}/{total} 通过")
     print(f"{'总计':10s} {len(results) - len(failed)}/{len(results)} 通过")
+    if any(r.get("error") for r in results):
+        print(f"（其中 {sum(1 for r in results if r.get('error'))} 条是异常，不是断言失败）")
     print("-" * 56)
     return 0 if not failed else 1
 

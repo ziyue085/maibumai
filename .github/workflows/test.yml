@@ -28,13 +28,13 @@ jobs:
       - name: 仓库自检（个人数据 / JSON / 编译 / 版本号）
         run: python tests/check_repo.py
 
-      - name: 规则回归（144 条夹具）
+      - name: 规则回归（166 条夹具）
         run: python tests/run_regression.py -v
 
-      - name: 变异测试（33 个变异必须全部被捕获）
+      - name: 变异测试（39 个变异必须全部被捕获）
         run: python tests/mutation_check.py
 
-      - name: 端到端冒烟（34 步）
+      - name: 端到端冒烟（36 步）
         run: python tests/run_cli_smoke.py
 
       - name: 引擎自检

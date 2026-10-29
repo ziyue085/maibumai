@@ -244,17 +244,31 @@ def budget_status(price, profile, monthly_equiv=None) -> dict:
                           "不知道其中多少能真正动用"}
 
     if isinstance(surplus, (int, float)):
-        capacity = (spend or 0) + max(0.0, surplus) * BREACH_MULTIPLE
+        # 存量未知 ≠ 存量为零。把未知当零，会凭空得出"你买不起"。
+        if spend is None:
+            return {**out, "status": "unknown", "code": "INFO_GAP", "basis": "monthly",
+                    "share": _ratio(price, surplus),
+                    "detail": f"月结余 {surplus:.0f} 元不够，但可动用存量未知——"
+                              "可能拿得出，也可能拿不出，先补现金与应急金"}
+        capacity = spend + max(0.0, surplus) * BREACH_MULTIPLE
         if price <= capacity:
-            months = round((price - (spend or 0)) / surplus, 1) if surplus > 0 else None
+            months = round((price - spend) / surplus, 1) if surplus > 0 else None
+            if surplus <= 0:
+                tail = f"可动用存量 {spend:.0f} 元（月结余为负，补不回来）"
+            else:
+                tail = (f"可动用存量 {spend:.0f} 元，再攒约 {months} 个月"
+                        if months else f"可动用存量 {spend:.0f} 元")
             return {**out, "status": "tight", "code": "BUDGET_TIGHT", "basis": "monthly",
-                    "share": _ratio(price, surplus), "months": months, "capacity": round(capacity, 2),
-                    "detail": "需要动用存量"
-                              + (f"并再攒约 {months} 个月" if months else "")
-                              + f"（可动用合计上限约 {capacity:.0f} 元）"}
+                    "share": _ratio(price, surplus), "months": months,
+                    "capacity": round(capacity, 2), "detail": f"需要动用存量：{tail}"}
+        if surplus <= 0:
+            detail = (f"可动用存量 {spend:.0f} 元不够，且每月结余为负（{surplus:.0f} 元），"
+                      "靠攒钱补不上")
+        else:
+            detail = f"可动用存量加一年结余合计约 {capacity:.0f} 元，仍不够"
         return {**out, "status": "breach", "code": "BUDGET_BREACH", "reason": "capacity",
                 "capacity": round(capacity, 2), "share": _ratio(price, surplus),
-                "detail": f"可动用存量加一年结余合计约 {capacity:.0f} 元，仍不够"}
+                "detail": detail}
 
     # 只有存量、没有现金流数据
     return {**out, "status": "unknown", "code": "INFO_GAP",

@@ -81,6 +81,41 @@ def _append_findings(result: dict, findings) -> None:
     result["ok"] = result["blocking"] == 0
 
 
+def _alt_price_problem(items, converted, as_of, price_class) -> str | None:
+    """替代品报价的出处是否站得住。返回问题码，None 表示合格。
+
+    一条报价要同时满足四件事才算有据：**价格对得上、来源够硬、有可点开的链接、
+    日期在保鲜期内**。只对得上价格不算——"朋友说 600"也能对得上。
+    """
+    candidates = [
+        e for e in items or []
+        if isinstance(e, dict)
+        and e.get("kind") in ("price", "promo")
+        and str(e.get("subject") or "target").strip().lower() == "alternative"
+        and isinstance(e.get("value"), (int, float))
+        and abs(e["value"] - converted) / converted <= 0.05
+    ]
+    if not candidates:
+        return "ALT_PRICE_UNVERIFIED"
+
+    best_tier = min(ev.SOURCE_TIERS.get(str(e.get("source_type") or ""), 5) for e in candidates)
+    if best_tier > 3:
+        # 用户口述 / 内容社区：可以作线索，不能作依据
+        return "ALT_PRICE_WEAK_SOURCE"
+
+    linked = [e for e in candidates if ev.valid_url(e.get("url"))]
+    if not linked:
+        return "ALT_PRICE_UNVERIFIED"
+
+    fresh = [
+        e for e in linked
+        if ev.item_freshness(e.get("kind"), e.get("observed_at"), as_of, price_class)[0]
+    ]
+    if not fresh:
+        return "ALT_PRICE_STALE"
+    return None
+
+
 def _assess_alternative(alt_raw, product, profile, items, base, as_of) -> dict:
     """替代方案是否够格支撑一条 SWITCH。
 
@@ -127,17 +162,17 @@ def _assess_alternative(alt_raw, product, profile, items, base, as_of) -> dict:
             problems.append("ALT_NEEDS_TIME")
         elif ab["status"] == "unknown":
             problems.append("ALT_BUDGET_UNKNOWN")
+        elif (ab.get("basis") == "monthly"
+              and (ab.get("snapshot") or {}).get("surplus_basis") == "estimated"):
+            # 替代品"买得起"是拿上界结余算出来的：缺的储蓄/投资只要吃掉一点就翻转
+            share = ab.get("share")
+            if share is None or share > ESTIMATE_TOLERANCE:
+                problems.append("ALT_BUDGET_UNKNOWN")
 
-        supported = any(
-            isinstance(e, dict)
-            and e.get("kind") in ("price", "promo")
-            and str(e.get("subject") or "target").strip().lower() == "alternative"
-            and isinstance(e.get("value"), (int, float))
-            and abs(e["value"] - converted) / converted <= 0.05
-            for e in items
-        )
-        if not supported:
-            problems.append("ALT_PRICE_UNVERIFIED")
+        problem = _alt_price_problem(items, converted, as_of,
+                                     calc.price_class(product.get("category")))
+        if problem:
+            problems.append(problem)
 
     return {
         "name": alt.get("name"),
@@ -158,6 +193,47 @@ def _assess_alternative(alt_raw, product, profile, items, base, as_of) -> dict:
     }
 
 
+#: 证据层的阻断码 → 结论层应该用的理由码。
+#: 目标价格站不住时，不该输出"买这个/换成这个"——比较的基础本身就不成立。
+PRICE_DEFECT_CODES = {
+    "EV_STALE": "PRICE_STALE",
+    "EV_NO_DATE": "PRICE_STALE",
+    "EV_FUTURE_DATE": "PRICE_STALE",
+    "EV_NO_SOURCE": "PRICE_UNVERIFIED",
+    "EV_BAD_URL": "PRICE_UNVERIFIED",
+    "EV_NO_SOURCE_TYPE": "PRICE_UNVERIFIED",
+    "EV_PRICE_VALUE_INVALID": "PRICE_UNVERIFIED",
+    "EV_CURRENCY_UNCONVERTED": "PRICE_UNVERIFIED",
+}
+
+
+def _target_price_defect(ev_result, items, best_tier) -> dict | None:
+    """目标商品的价格证据有没有硬伤。有就返回该用的理由码。
+
+    只看 ``subject=target`` 的价格类证据：替代品的证据缺陷由替代品自己承担，
+    不能拿它去否决目标商品的结论。
+    """
+    for f in ev_result.get("findings") or []:
+        if f.get("severity") != "BLOCK":
+            continue
+        idx = (f.get("detail") or {}).get("index")
+        if not isinstance(idx, int) or not (0 <= idx < len(items)):
+            continue
+        item = items[idx]
+        if str(item.get("subject") or "target").strip().lower() != "target":
+            continue
+        if item.get("kind") not in ("price", "promo"):
+            continue
+        code = PRICE_DEFECT_CODES.get(f.get("code"))
+        if code:
+            return {"code": code, "why": f["message"], "from": f["code"]}
+    if best_tier is not None and best_tier > 3:
+        return {"code": "PRICE_UNVERIFIED",
+                "why": "价格只有用户口述或社区来源，不能据此断言价格合理",
+                "from": "SOURCE_TIER"}
+    return None
+
+
 def _affordability_unverified(fin, level, price, kind=None, period=None):
     """承受力是否只是"看起来够"，而不是确认够。
 
@@ -165,7 +241,9 @@ def _affordability_unverified(fin, level, price, kind=None, period=None):
     0. 连价格都没定下来（外币换不出来之类）；
     1. 是订阅但没说计费周期——月付 200 和年付 200 差 12 倍，无法折算真实成本；
     2. 月结余是缺储蓄/投资额时估出来的上界，且这笔消费吃掉了其中一大半；
-    3. 重决策（L3）下收入、支出、存量都不足以判断。
+    3. 收入、支出、存量都不足以判断——**L2 与 L3 都算**，只有 L1 快判豁免。
+       300 元的判断和 3000 元的判断一样需要知道"这笔钱会不会挤掉别的"，
+       只是前者可以少问几句，不是可以不问。
 
     返回 ``{"why": ...}`` 表示不成立，返回 None 表示可以按现状下结论。
     """
@@ -188,7 +266,7 @@ def _affordability_unverified(fin, level, price, kind=None, period=None):
             }
         return None
 
-    if fin["status"] == "unknown" and level == "L3":
+    if fin["status"] == "unknown":
         return {
             "why": "收入、固定支出与可动用存量都不足以判断这笔消费的承受力",
             "missing": snap.get("missing_fields"),
@@ -280,8 +358,10 @@ def _evaluate(draft: dict, profile: dict, owned=None) -> dict:
     resolved = vd.resolve(reasons, alt_norm, draft.get("override"), alt_problems=alt_problems)
 
     # 7) 承受力没被确认时，不能输出"买得起"：先降结论，再记账
+    # SWITCH 不需要过这一关：它推荐的**不是**这个买不起/算不清的东西，
+    # 替代品自己的承受力已经在 _assess_alternative 里单独验过了。
     unverified = _affordability_unverified(fin, level, price, computed["kind"], period)
-    if unverified and resolved["verdict"] in ("BUY", "SWITCH"):
+    if unverified and resolved["verdict"] == "BUY":
         # 「在预算内」和「不知道在不在预算内」不能同时成立：先撤掉前一条
         reasons = [r for r in reasons if r["code"] != "AFFORDABLE_WITHIN_BUDGET"]
         enforced_codes = [c for c in enforced_codes if c != "AFFORDABLE_WITHIN_BUDGET"]
@@ -294,9 +374,49 @@ def _evaluate(draft: dict, profile: dict, owned=None) -> dict:
         resolved = vd.resolve(reasons, alt_norm, draft.get("override"), alt_problems=alt_problems)
 
     verdict = resolved["verdict"]
+
+    # 8) 证据校验：L1 不要求价格证据，否则快判通道形同虚设
+    ev_result = ev.check(
+        items,
+        as_of=as_of,
+        price_class=calc.price_class(product.get("category")),
+        required_kinds=("price",) if (verdict in ("BUY", "SWITCH") and level != "L1") else (),
+    )
+    if currency_findings:
+        _append_findings(ev_result, currency_findings)
+
+    # 8b) 目标价格自己站不住时，不输出购买类结论。
+    #     "价格合理/换这个更便宜"都建立在这个数字上；数字不可信，结论就不该成立。
+    price_defect = None
+    if verdict in ("BUY", "SWITCH") and level != "L1":
+        target_prices = [
+            e for e in items
+            if isinstance(e, dict) and e.get("kind") in ("price", "promo")
+            and str(e.get("subject") or "target").strip().lower() == "target"
+            and isinstance(e.get("value"), (int, float))
+        ]
+        best_tier = min(
+            (ev.SOURCE_TIERS.get(str(e.get("source_type") or ""), 5) for e in target_prices),
+            default=None,
+        )
+        price_defect = _target_price_defect(ev_result, items, best_tier)
+        if price_defect:
+            reasons = [r for r in reasons if r["code"] != "AFFORDABLE_WITHIN_BUDGET"]
+            enforced_codes = [c for c in enforced_codes if c != "AFFORDABLE_WITHIN_BUDGET"]
+            if price_defect["code"] not in {r["code"] for r in reasons}:
+                reasons.append({
+                    "code": price_defect["code"],
+                    "note": "由证据校验自动判定（" + price_defect["why"] + "）",
+                    "enforced": True,
+                })
+                enforced_codes.append(price_defect["code"])
+            resolved = vd.resolve(reasons, alt_norm, draft.get("override"),
+                                  alt_problems=alt_problems)
+            verdict = resolved["verdict"]
+
     needs_price = verdict in ("BUY", "SWITCH")
 
-    # 8) 财务门的发现：结论已经按事实调整过，所以这些是说明而不是错误
+    # 9) 财务门的发现：结论已经按事实调整过，所以这些是说明而不是错误
     financial = []
     claims_affordable = verdict in ("BUY", "SWITCH")
     if fin["status"] == "breach":
@@ -331,9 +451,9 @@ def _evaluate(draft: dict, profile: dict, owned=None) -> dict:
             hint = "；还缺：" + "、".join(snap["missing_fields"])
         financial.append({
             "code": "FIN_BUDGET_UNKNOWN",
-            # BLOCK 只在"结论仍然声称买得起、而承受力并未确认"时成立。
-            # 结论已经降为暂缓的话，这是说明，不是错误。
-            "severity": "BLOCK" if (claims_affordable and unverified) else
+            # BLOCK 只在"结论仍然推荐这个商品、而承受力未确认"时成立。
+            # 结论是暂缓或替换方案时，这是说明，不是错误。
+            "severity": "BLOCK" if (verdict == "BUY" and unverified) else
                         ("WARN" if claims_affordable else "INFO"),
             "gate": "financial",
             "message": "收入/支出/存量都不足以判断承受力" + hint
@@ -351,7 +471,7 @@ def _evaluate(draft: dict, profile: dict, owned=None) -> dict:
     if snap.get("surplus_estimated"):
         financial.append({
             "code": "FIN_SURPLUS_ESTIMATED",
-            "severity": "BLOCK" if (claims_affordable and unverified) else "WARN",
+            "severity": "BLOCK" if (verdict == "BUY" and unverified) else "WARN",
             "gate": "financial",
             "message": "储蓄目标或每月投资额还没填，可支配余额只能算上界"
                       + ("；不能据此断言买得起" if claims_affordable
@@ -369,16 +489,6 @@ def _evaluate(draft: dict, profile: dict, owned=None) -> dict:
             "message": unverified["why"] + "。结论已按此降为暂缓，不是买不起",
             "detail": unverified,
         })
-
-    # 9) 证据校验：L1 不要求价格证据，否则快判通道形同虚设
-    ev_result = ev.check(
-        items,
-        as_of=as_of,
-        price_class=calc.price_class(product.get("category")),
-        required_kinds=("price",) if (needs_price and level != "L1") else (),
-    )
-    if currency_findings:
-        _append_findings(ev_result, currency_findings)
 
     goal_name = store.fact_fresh(profile, "goal.name")
     goal_monthly = store.fact_fresh(profile, "goal.monthly")

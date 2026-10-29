@@ -81,6 +81,18 @@
             "finance.discretionary_override": {
               "value": 2000,
               "updated_at": "TODAY"
+            },
+            "finance.liquid_cash": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "finance.emergency_fund": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "finance.near_term_obligations": {
+              "value": 0,
+              "updated_at": "TODAY"
             }
           }
         }
@@ -100,6 +112,18 @@
           "facts": {
             "finance.discretionary_override": {
               "value": 2000,
+              "updated_at": "TODAY"
+            },
+            "finance.liquid_cash": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "finance.emergency_fund": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "finance.near_term_obligations": {
+              "value": 0,
               "updated_at": "TODAY"
             }
           }
@@ -472,6 +496,18 @@
             "finance.discretionary_override": {
               "value": 2000,
               "updated_at": "TODAY"
+            },
+            "finance.liquid_cash": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "finance.emergency_fund": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "finance.near_term_obligations": {
+              "value": 0,
+              "updated_at": "TODAY"
             }
           }
         }
@@ -564,6 +600,116 @@
         "level": "L1"
       },
       "why": "类型不对就退回默认，不猜也不崩。"
+    },
+    {
+      "id": "C33",
+      "fn": "budget_status",
+      "name": "存量未知不等于存量为零",
+      "args": [
+        3000,
+        {
+          "facts": {
+            "finance.monthly_income": {
+              "value": 2600,
+              "updated_at": "TODAY"
+            },
+            "finance.monthly_fixed_expense": {
+              "value": 1100,
+              "updated_at": "TODAY"
+            },
+            "finance.savings_target_monthly": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "invest.monthly_contribution": {
+              "value": 0,
+              "updated_at": "TODAY"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "status": "unknown",
+        "code": "INFO_GAP"
+      },
+      "why": "把未知存量当成 0，会凭空得出「买不起」；正确说法是「不知道」。"
+    },
+    {
+      "id": "C34",
+      "fn": "budget_status",
+      "name": "月结余为负且存量未知：不能判买不起",
+      "args": [
+        399,
+        {
+          "facts": {
+            "finance.monthly_income": {
+              "value": 1500,
+              "updated_at": "TODAY"
+            },
+            "finance.monthly_fixed_expense": {
+              "value": 1800,
+              "updated_at": "TODAY"
+            },
+            "finance.savings_target_monthly": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "invest.monthly_contribution": {
+              "value": 0,
+              "updated_at": "TODAY"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "status": "unknown"
+      },
+      "why": "负结余时 (spend or 0) 会算出容量 0，把「不知道」变成「一分钱都没有」。"
+    },
+    {
+      "id": "C35",
+      "fn": "budget_status",
+      "name": "月结余为负且存量已知不够：才判买不起",
+      "args": [
+        399,
+        {
+          "facts": {
+            "finance.monthly_income": {
+              "value": 1500,
+              "updated_at": "TODAY"
+            },
+            "finance.monthly_fixed_expense": {
+              "value": 1800,
+              "updated_at": "TODAY"
+            },
+            "finance.savings_target_monthly": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "invest.monthly_contribution": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "finance.liquid_cash": {
+              "value": 100,
+              "updated_at": "TODAY"
+            },
+            "finance.emergency_fund": {
+              "value": 0,
+              "updated_at": "TODAY"
+            },
+            "finance.near_term_obligations": {
+              "value": 0,
+              "updated_at": "TODAY"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "status": "breach",
+        "reason": "capacity"
+      },
+      "why": "存量确实只有 100，结余又在倒退——这才是真的拿不出。"
     }
   ]
 }

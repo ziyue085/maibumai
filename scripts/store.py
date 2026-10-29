@@ -344,9 +344,13 @@ def _migrate(raw: dict) -> dict:
         "goal.target": goal.get("target"),
         "goal.monthly": goal.get("monthly"),
     })
+    # 旧画像里的数字是什么时候的？只能是它最后一次保存的时间；
+    # 连这个都没有，就标成"日期不明"。绝不刷新成今天。
+    legacy_stamp = raw.get("updated_at") or ""
     for key, value in mapping.items():
         if value is not None:
-            _set_fact_raw(p, key, value, note="由 v1 迁移")
+            _set_fact_raw(p, key, value, note="由 v1 迁移（日期沿用旧画像）",
+                          updated_at=legacy_stamp)
     if isinstance(raw.get("behavior"), dict):
         p["behavior"].update(raw["behavior"])
     p["meta"]["base_currency"] = raw.get("currency") or "CNY"
@@ -400,9 +404,15 @@ def _coerce(raw, kind: str):
 def _set_fact_raw(profile: dict, key: str, value, note: str = "",
                   source: str = "", confirmed: bool = True,
                   updated_at: str | None = None) -> None:
+    """写入一条事实。
+
+    ``updated_at`` 传 ``None`` 表示"用户刚说的，就是今天"；
+    传空串表示"日期不明"——历史快照没有日期时不能拿今天顶上，
+    否则一条 2024 年的数字会永远看起来是新鲜的。
+    """
     profile.setdefault("facts", {})[key] = {
         "value": value,
-        "updated_at": updated_at or today_str(),
+        "updated_at": today_str() if updated_at is None else str(updated_at),
         "note": note or "",
         "source": source or "",
         "confirmed": bool(confirmed),
@@ -461,7 +471,8 @@ def seed_facts(entries: dict, force: bool = False) -> dict:
             note=meta.get("note", ""),
             source=meta.get("source", ""),
             confirmed=bool(meta.get("confirmed", False)),
-            updated_at=meta.get("observed_at"),
+            # 没有 observed_at 就是日期不明，不能拿今天顶上
+            updated_at=meta.get("observed_at") or "",
         )
         written.append(key)
     save_profile(profile)
@@ -475,10 +486,16 @@ def fact(profile: dict, key: str, default=None):
 
 
 def fact_age(profile: dict, key: str):
+    """距今天数。日期缺失/不可解析返回 None，未来日期返回负数。
+
+    接受 ``2026-10-29`` 与 ``2026-10-29T10:00:00+08:00`` 两种写法。
+    """
     item = (profile.get("facts") or {}).get(key) or {}
-    stamp = item.get("updated_at")
+    text = str(item.get("updated_at") or "").strip()
+    if len(text) >= 10:
+        text = text[:10]
     try:
-        then = _dt.date.fromisoformat(str(stamp))
+        then = _dt.date.fromisoformat(text)
     except (TypeError, ValueError):
         return None
     return (_dt.date.today() - then).days
@@ -510,7 +527,11 @@ def fact_stale(profile: dict, key: str) -> bool:
         return False
     age = fact_age(profile, key)
     if age is None:
-        return decisive
+        # 没有日期就是不知道什么时候的数；带保鲜期的字段一律按不可信处理
+        return True
+    if age < 0:
+        # 未来日期不可能是"今天的现状"：要么录入错误，要么时区/格式错乱
+        return True
     if age > ttl:
         return True
     if spec.get("type") == "number":
@@ -660,7 +681,13 @@ def brief(profile: dict) -> str:
             when = item.get("updated_at") or "日期不明"
             return f"{val}{unit}（{when} 记录，待确认）"
         if fact_stale(profile, key):
-            return f"{val}{unit}（已过期，{item.get('updated_at')}）"
+            stamp = item.get("updated_at")
+            if not stamp:
+                return f"{val}{unit}（日期不明，不可信）"
+            age = fact_age(profile, key)
+            if age is not None and age < 0:
+                return f"{val}{unit}（日期在未来：{stamp}，不可信）"
+            return f"{val}{unit}（已过期，{stamp}）"
         return f"{val}{unit}"
 
     snap = financial_snapshot(profile)

@@ -66,9 +66,9 @@
 
 ```bash
 python tests/check_repo.py          # 无个人数据指纹、JSON/Python、版本号
-python tests/run_regression.py      # 144 条夹具
-python tests/mutation_check.py      # 33 个变异全部被捕获
-python tests/run_cli_smoke.py       # 34 步端到端
+python tests/run_regression.py      # 166 条夹具
+python tests/mutation_check.py      # 39 个变异全部被语义断言捕获
+python tests/run_cli_smoke.py       # 36 步端到端
 python tests/windows_case_check.py  # Windows 关键路径（中文路径/编码/账本）
 ```
 
@@ -83,3 +83,5 @@ python tests/windows_case_check.py  # Windows 关键路径（中文路径/编码
 - [ ] 新增物品后 `brief` 能看到它，且 condition 描述符合实际。
 - [ ] 用户说"我不记得存了多少"时，**不给数字结论**，只说先补上再判断。
 - [ ] 历史快照（带日期的旧数字）在 `brief` 里显示"待确认"，且没参与任何计算。
+- [ ] 用户说不出"存款有多少"时，结论是暂缓且说明缺什么，而不是替他按零算。
+- [ ] 系统日期异常（未来日期）时，财务数据按未知处理，`brief` 明确标出"不可信"。

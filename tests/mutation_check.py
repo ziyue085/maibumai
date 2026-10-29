@@ -205,7 +205,10 @@ def _m25():
 
 @mutation("承受力没确认也照常给购买结论")
 def _m26():
-    return _set(mbm, "_affordability_unverified", lambda fin, level, price: None)
+    # 参数与真实签名一致（5 个）；否则会以 TypeError 被"捕获"，
+    # 那是把崩溃误当成断言命中。
+    return _set(mbm, "_affordability_unverified",
+                lambda fin, level, price, kind=None, period=None: None)
 
 
 @mutation("替代方案只要有个名字就算合格")
@@ -280,6 +283,68 @@ def _m33():
                 tuple(c for c, t in verdict.RULE_TIER.items() if t == "DONT_BUY"))
 
 
+# --- 第五轮审核新增：等级边界、存量未知、替代品证据与画像时间 -----------------
+@mutation("L2 不检查财务是否确认")
+def _m34():
+    orig = mbm._affordability_unverified
+    return _set(mbm, "_affordability_unverified",
+                lambda fin, level, price, kind=None, period=None:
+                None if level == "L2" else orig(fin, level, price, kind, period))
+
+
+@mutation("存量未知当成零")
+def _m35():
+    orig = store.financial_snapshot
+
+    def snap(profile):
+        out = orig(profile)
+        if out.get("spendable") is None:
+            out["spendable"] = 0.0
+        return out
+    return _set(store, "financial_snapshot", snap)
+
+
+@mutation("替代品报价只比数值，不查来源与时效")
+def _m36():
+    def loose(items, converted, as_of, price_class):
+        for e in items or []:
+            if (isinstance(e, dict) and e.get("kind") in ("price", "promo")
+                    and str(e.get("subject") or "").lower() == "alternative"
+                    and isinstance(e.get("value"), (int, float))
+                    and abs(e["value"] - converted) / converted <= 0.05):
+                return None
+        return "ALT_PRICE_UNVERIFIED"
+    return _set(mbm, "_alt_price_problem", loose)
+
+
+@mutation("替代品预算不看未确认的结余上界")
+def _m37():
+    orig = mbm._assess_alternative
+
+    def fake(*args, **kwargs):
+        out = orig(*args, **kwargs)
+        out["problems"] = [p for p in out["problems"] if p != "ALT_BUDGET_UNKNOWN"]
+        return out
+    return _set(mbm, "_assess_alternative", fake)
+
+
+@mutation("写入画像时一律盖今天的日期")
+def _m38():
+    orig = store._set_fact_raw
+
+    def stamp_today(profile, key, value, note="", source="", confirmed=True, updated_at=None):
+        orig(profile, key, value, note=note, source=source, confirmed=confirmed,
+             updated_at=store.today_str())
+    return _set(store, "_set_fact_raw", stamp_today)
+
+
+@mutation("未来日期当作有效")
+def _m39():
+    orig = store.fact_age
+    return _set(store, "fact_age",
+                lambda profile, key: abs(orig(profile, key) or 0))
+
+
 def main() -> int:
     baseline = rr.run_all()
     base_fail = [r for r in baseline if not r["ok"]]
@@ -291,7 +356,7 @@ def main() -> int:
 
     print(f"基线：{len(baseline)} 条用例全部通过\n")
 
-    survived = []
+    survived, crashes_only = [], []
     for name, (apply, restore) in MUTATIONS:
         apply()
         try:
@@ -299,15 +364,31 @@ def main() -> int:
         finally:
             restore()
         fails = [r for r in results if not r["ok"]]
-        hit = sorted({r["id"] for r in fails})
-        print(f"[{'KILLED' if fails else 'SURVIVED'}] {name}")
-        if fails:
+        semantic = [r for r in fails if not r.get("error")]
+        crashed = [r for r in fails if r.get("error")]
+
+        if semantic:
+            hit = sorted({r["id"] for r in semantic})
+            print(f"[KILLED] {name}")
             print(f"          被捕获于：{', '.join(hit)}")
+            if crashed:
+                print(f"          （另有 {len(crashed)} 条因异常失败，不作为捕获依据）")
+        elif crashed:
+            # 只是把代码改崩了：断言并没有抓到错误行为，算假阳性
+            print(f"[SURVIVED·崩溃] {name}")
+            print(f"          只有异常，没有语义断言失败：{', '.join(sorted({r['id'] for r in crashed}))}")
+            survived.append(name)
+            crashes_only.append(name)
         else:
+            print(f"[SURVIVED] {name}")
             survived.append(name)
 
     print("-" * 56)
     print(f"变异 {len(MUTATIONS)} 个，被捕获 {len(MUTATIONS) - len(survived)} 个")
+    if crashes_only:
+        print(f"其中 {len(crashes_only)} 个只靠崩溃暴露——说明对应用例没有真正断言行为：")
+        for s in crashes_only:
+            print("  -", s)
     if survived:
         print("未被捕获（说明对应用例缺失）：")
         for s in survived:

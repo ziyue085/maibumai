@@ -141,11 +141,21 @@ def main() -> int:
         did = logged["id"]
         ctx.check("judge 一步完成判定与落账", logged["logged"] is True, logged)
 
-        # 关键回归：财务模块判定预算超标后，结论必须被强制改变
+        # 关键回归：存量未知 ≠ 存量为零。18000 元只能先说「不知道」，不能判买不起
         exp_path = ctx.write("exp.json", EXPENSIVE)
+        exp_unknown = ctx.json("check", "--input", exp_path)
+        ctx.check("存量未知时 18000 元降为暂缓，而不是买不起",
+                  exp_unknown["verdict"]["verdict"] == "DEFER", exp_unknown["verdict"])
+        ctx.check("降级理由是「承受力无法确认」",
+                  "BUDGET_UNVERIFIED" in (exp_unknown["verdict"]["enforced"] or []),
+                  exp_unknown["verdict"]["enforced"])
+
+        # 存量确认为零之后，才谈得上越过安全底线
+        ctx.json("profile", "set", "finance.liquid_cash=0",
+                 "finance.emergency_fund=0", "finance.near_term_obligations=0")
         exp = ctx.json("judge", "--input", exp_path)
-        ctx.check("18000 元被强制为不建议购买", exp["result"]["verdict"]["verdict"] == "DONT_BUY",
-                  exp["result"]["verdict"])
+        ctx.check("存量确认不够时强制为不建议购买",
+                  exp["result"]["verdict"]["verdict"] == "DONT_BUY", exp["result"]["verdict"])
         ctx.check("强制理由来自财务门",
                   "BUDGET_BREACH" in (exp["result"]["gates"]["financial"]["enforced"] or []),
                   exp["result"]["gates"]["financial"])

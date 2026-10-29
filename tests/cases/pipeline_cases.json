@@ -16,7 +16,10 @@
       "name": "越过安全底线：财务强制为不建议购买",
       "profile": {
         "facts": {
-          "finance.discretionary_override": 2000
+          "finance.discretionary_override": 2000,
+          "finance.liquid_cash": 0,
+          "finance.emergency_fund": 0,
+          "finance.near_term_obligations": 0
         }
       },
       "draft": {
@@ -59,7 +62,8 @@
       "expect_ok": true,
       "expect_gate": {
         "financial": true
-      }
+      },
+      "why": "存量确实为零、结余加一年也覆盖不了，才是真正的安全风险；存量未知时只能说「不知道」。"
     },
     {
       "id": "P02",
@@ -512,7 +516,7 @@
     },
     {
       "id": "P11",
-      "name": "负数价格必须拦下",
+      "name": "负数价格：结论降为暂缓，不是买了再拦",
       "profile": {
         "facts": {
           "finance.discretionary_override": 2000
@@ -547,13 +551,19 @@
             "url": "https://example.com/k",
             "observed_at": "2026-10-28"
           }
-        ]
+        ],
+        "recheck_condition": "重新确认价格后判断"
       },
-      "expect_blocking": [
-        "EV_PRICE_VALUE_INVALID",
-        "AUD_EVIDENCE_BLOCKING"
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_verdict": "DEFER",
+      "expect_findings": [
+        "EV_PRICE_VALUE_INVALID"
       ],
-      "expect_ok": false
+      "expect_enforced": [
+        "PRICE_UNVERIFIED"
+      ],
+      "why": "价格数据不成立时不能判断值不值；暂缓并说明「先把价格重新确认一遍」。"
     },
     {
       "id": "P12",
@@ -841,7 +851,7 @@
     },
     {
       "id": "P18",
-      "name": "只有口述价格不能支撑建议购买",
+      "name": "只有口述价格：降为暂缓，要求公开报价",
       "profile": {
         "facts": {
           "finance.discretionary_override": 2000
@@ -875,12 +885,16 @@
             "source_type": "user_provided",
             "observed_at": "2026-10-29"
           }
-        ]
+        ],
+        "recheck_condition": "查到公开报价后重新判断"
       },
-      "expect_blocking": [
-        "AUD_PRICE_UNVERIFIED"
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_verdict": "DEFER",
+      "expect_enforced": [
+        "PRICE_UNVERIFIED"
       ],
-      "expect_ok": false
+      "why": "「朋友说 899」可以作线索，不能作依据；改判暂缓并要求一条带链接的公开报价。"
     },
     {
       "id": "P19",
@@ -1891,11 +1905,14 @@
       },
       "expect_verdict": "DEFER",
       "expect_enforced": [
-        "BUDGET_TIGHT"
+        "BUDGET_UNVERIFIED"
       ],
       "expect_blocking": [],
       "expect_ok": true,
-      "why": "一个没确认过的覆盖值能让 4000 元变成「在预算内」——这正是要挡的。"
+      "why": "一个没确认过的覆盖值能让 4000 元变成「在预算内」——这正是要挡的。",
+      "expect_findings": [
+        "FIN_BUDGET_UNKNOWN"
+      ]
     },
     {
       "id": "W2",
@@ -2111,11 +2128,14 @@
       },
       "expect_verdict": "DEFER",
       "expect_enforced": [
-        "BUDGET_TIGHT"
+        "BUDGET_UNVERIFIED"
       ],
       "expect_blocking": [],
       "expect_ok": true,
-      "why": "一个没确认的存量覆盖值等于「存款都能花」，正好是这条要挡的。"
+      "why": "一个没确认的存量覆盖值等于「存款都能花」，正好是这条要挡的。",
+      "expect_findings": [
+        "FIN_BUDGET_UNKNOWN"
+      ]
     },
     {
       "id": "W6",
@@ -2648,10 +2668,11 @@
       "expect_verdict": "SWITCH",
       "expect_blocking": [],
       "expect_ok": true,
-      "expect_enforced": [
-        "BUDGET_TIGHT"
-      ],
-      "why": "跨月本身不是否决理由；换一个现在就拿得出的，问题就解决了。"
+      "expect_enforced": [],
+      "why": "目标商品 4000 元要动用存量，但存量未知；替代品 900 元在月结余之内，换过去买得起，所以给替换方案。",
+      "expect_warn": [
+        "FIN_BUDGET_UNKNOWN"
+      ]
     },
     {
       "id": "P32",
@@ -2710,6 +2731,595 @@
       "expect_blocking": [],
       "expect_ok": true,
       "why": "只有「钱」能让位给替换方案；重复持有、诈骗、违反硬约束不让位。"
+    },
+    {
+      "id": "P33",
+      "name": "L2 但财务画像完全为空：暂缓，不是购买",
+      "profile": {
+        "facts": {}
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌电容笔",
+          "price": 300,
+          "category": "数码配件"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧笔断触，每天做笔记要用"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "300",
+            "value": 300,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "补上收入与固定支出后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_level": "L2",
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ],
+      "expect_findings": [
+        "FIN_BUDGET_UNKNOWN"
+      ],
+      "why": "300 元也要知道会不会挤掉别的。旧行为是 BUY + ok=True + 一条警告，等于把「不知道」当成「没问题」。"
+    },
+    {
+      "id": "P34",
+      "name": "反向对照：L2 在月结余之内仍然可以买",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "机械键盘",
+          "price": 450,
+          "category": "数码/外设"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "现有键盘三个键失灵"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "450",
+            "value": 450,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_level": "L2",
+      "expect_enforced": [
+        "AFFORDABLE_WITHIN_BUDGET"
+      ],
+      "why": "450 元在月结余 1500 之内，存量未知不影响这个判断——把 L2 一律降级，是另一种偷懒。"
+    },
+    {
+      "id": "P35",
+      "name": "财务数据日期在未来：按未知处理",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": {
+            "value": 2600,
+            "days_ahead": 400
+          },
+          "finance.monthly_fixed_expense": {
+            "value": 1100,
+            "days_ahead": 400
+          },
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "显示器",
+          "price": 3000,
+          "category": "数码/显示器"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "旧显示器坏点影响修图"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "两家自营同价"
+          },
+          {
+            "code": "DURABILITY_GAIN",
+            "note": "预期使用五年以上"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "3000",
+            "value": 3000,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "把日期改对后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ],
+      "why": "未来日期不可能是「今天的现状」；按未知处理，而不是当成最新鲜的数据。"
+    },
+    {
+      "id": "P36",
+      "name": "价格证据的日期在未来：不给购买结论",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2099-01-01"
+          }
+        ],
+        "recheck_condition": "重新确认观测日期后判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "PRICE_STALE"
+      ],
+      "expect_findings": [
+        "EV_FUTURE_DATE"
+      ],
+      "why": "未来日期的报价不可能成立，不能拿它撑「价格合理」。"
+    },
+    {
+      "id": "A4",
+      "name": "替代品报价过期：不给 SWITCH",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "上代同功能便宜很多"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "上代便宜三百"
+          }
+        ],
+        "alternative": {
+          "name": "同型号上代",
+          "price": 600,
+          "source": "某平台 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "600",
+            "value": 600,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-09-01",
+            "subject": "alternative"
+          }
+        ],
+        "recheck_condition": "查到 14 天内的替代品报价后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_PRICE_STALE"
+      ],
+      "why": "40 天前的替代品报价不能当作现价；否则「便宜 300」可能是假的。"
+    },
+    {
+      "id": "A5",
+      "name": "替代品报价没有日期：不给 SWITCH",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "上代同功能便宜很多"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "上代便宜三百"
+          }
+        ],
+        "alternative": {
+          "name": "同型号上代",
+          "price": 600,
+          "source": "某平台"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "600",
+            "value": 600,
+            "subject": "alternative",
+            "source_type": "official",
+            "url": "https://example.com/b"
+          }
+        ],
+        "recheck_condition": "补上观测日期后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_PRICE_STALE"
+      ],
+      "why": "没有日期就不知道是不是现价，和过期一样不能用。"
+    },
+    {
+      "id": "A6",
+      "name": "替代品只有用户口述：不给 SWITCH",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "上代同功能便宜很多"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "上代便宜三百"
+          }
+        ],
+        "alternative": {
+          "name": "同型号上代",
+          "price": 600,
+          "source": "朋友说的"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "朋友说 600",
+            "value": 600,
+            "source_type": "user_provided",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28",
+            "subject": "alternative"
+          }
+        ],
+        "recheck_condition": "查到公开报价后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_PRICE_WEAK_SOURCE"
+      ],
+      "why": "旧行为直接给了 SWITCH + ok=True——「朋友说便宜」也能当推荐依据，这是最危险的一种。"
+    },
+    {
+      "id": "A7",
+      "name": "替代品报价没有可点开的链接：不给 SWITCH",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 2000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "上代同功能便宜很多"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "上代便宜三百"
+          }
+        ],
+        "alternative": {
+          "name": "同型号上代",
+          "price": 600,
+          "source": "某平台"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "600",
+            "value": 600,
+            "subject": "alternative",
+            "source_type": "official",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "补上报价链接后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_PRICE_UNVERIFIED"
+      ],
+      "why": "用户点不开的报价无法核实，不是证据。"
+    },
+    {
+      "id": "A8",
+      "name": "替代品预算依赖未确认的结余上界：不给 SWITCH",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 1200,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "上代同功能便宜很多"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "上代便宜三百"
+          }
+        ],
+        "alternative": {
+          "name": "同型号上代",
+          "price": 900,
+          "source": "某平台 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1200",
+            "value": 1200,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28",
+            "subject": "alternative"
+          }
+        ],
+        "recheck_condition": "确认储蓄目标后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_BUDGET_UNKNOWN"
+      ],
+      "why": "替代品吃掉「上界结余」的 60%：缺的储蓄与投资只要有一点就翻转，不能说换得起。"
+    },
+    {
+      "id": "A9",
+      "name": "目标价格过期：不给购买结论",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤两小时旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-09-01"
+          }
+        ],
+        "recheck_condition": "查到 14 天内的报价后重新判断"
+      },
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "PRICE_STALE"
+      ],
+      "expect_findings": [
+        "EV_STALE"
+      ],
+      "why": "旧行为会给出「建议购买」并同时拦下账本；价格过期本身就是暂缓的理由。"
     }
   ]
 }

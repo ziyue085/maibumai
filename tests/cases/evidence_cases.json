@@ -467,10 +467,11 @@
       },
       "expect": [
         "EV_CONFLICT",
-        "EV_PRICE_CONFLICT"
+        "EV_PRICE_CONFLICT",
+        "EV_PRICE_BASIS_UNKNOWN"
       ],
       "expect_ok": true,
-      "why": "跨等级差异报 EV_CONFLICT（说明差异即可）；同等级互相打架另报 EV_PRICE_CONFLICT——取平均、取最新、取便宜的都是在替用户挑。"
+      "why": "跨等级差异报 EV_CONFLICT（说明差异即可）；同等级互相打架另报 EV_PRICE_CONFLICT——取平均、取最新、取便宜的都是在替用户挑。 两条都没标口径，所以同时报 EV_PRICE_BASIS_UNKNOWN：无法排除这只是促销/规格/地区差异，而不是数据打架。"
     },
     {
       "id": "E21",
@@ -583,6 +584,345 @@
       ],
       "expect_ok": false,
       "why": "负数价格不成立；同样不能拿到 page 级标记。"
+    },
+    {
+      "id": "E25",
+      "name": "区间内但不合理的汇率：USD/CNY=1",
+      "items": [
+        {
+          "kind": "fx",
+          "claim": "USD/CNY 1",
+          "value": 1,
+          "base": "USD",
+          "quote": "CNY",
+          "source_type": "official",
+          "url": "https://example.com/fx",
+          "observed_at": "2026-10-29"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [],
+        "base": "CNY"
+      },
+      "expect": [
+        "EV_FX_UNTRUSTED"
+      ],
+      "expect_ok": true,
+      "why": "1 落在 1e-4~1e4 的绝对边界内，旧代码会放行：100 美元被算成 100 元。它离锚点 7.1 差 7.1 倍，属于量级就不对。"
+    },
+    {
+      "id": "E26",
+      "name": "区间内但不合理的汇率：USD/CNY=100",
+      "items": [
+        {
+          "kind": "fx",
+          "claim": "USD/CNY 100",
+          "value": 100,
+          "base": "USD",
+          "quote": "CNY",
+          "source_type": "official",
+          "url": "https://example.com/fx",
+          "observed_at": "2026-10-29"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [],
+        "base": "CNY"
+      },
+      "expect": [
+        "EV_FX_UNTRUSTED"
+      ],
+      "expect_ok": true,
+      "why": "100 同样在绝对边界内，离锚点差 14 倍。旧代码会把它换算成 10000 元，直接把一个买得起的东西判成买不起。"
+    },
+    {
+      "id": "E27",
+      "name": "合理汇率放行，但只报「没有理由拒绝」，不报「已核实」",
+      "items": [
+        {
+          "kind": "fx",
+          "claim": "USD/CNY 7.2",
+          "value": 7.2,
+          "base": "USD",
+          "quote": "CNY",
+          "source_type": "official",
+          "url": "https://example.com/fx",
+          "observed_at": "2026-10-29"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [],
+        "base": "CNY"
+      },
+      "expect": [
+        "EV_FX_PLAUSIBLE_ONLY"
+      ],
+      "expect_ok": true,
+      "why": "正向对照：7.2 必须照常通过。但通过只代表量级不离谱——本仓库没有独立汇率源，也没有页面正文可核，所以发的是 INFO 而不是已核实。"
+    },
+    {
+      "id": "E28",
+      "name": "官网标价 1099 与促销价 899：口径不同，不是数据打架",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "1099",
+          "value": 1099,
+          "source_type": "official",
+          "url": "https://example.com/msrp",
+          "observed_at": "2026-10-29",
+          "price_basis": "msrp"
+        },
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/promo",
+          "observed_at": "2026-10-29",
+          "price_basis": "promo"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_CONFLICT",
+        "EV_PRICE_BASIS_DIFF"
+      ],
+      "expect_ok": true,
+      "why": "标价与促销价可以同时为真。把它们塞进同一把尺比大小，得到的EV_PRICE_CONFLICT 是假的——所以这里不许出现 EV_PRICE_CONFLICT。"
+    },
+    {
+      "id": "E29",
+      "name": "同口径真冲突：两条到手价 899 / 1099",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/a",
+          "observed_at": "2026-10-29",
+          "price_basis": "street"
+        },
+        {
+          "kind": "price",
+          "claim": "1099",
+          "value": 1099,
+          "source_type": "official",
+          "url": "https://example.com/b",
+          "observed_at": "2026-10-29",
+          "price_basis": "street"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_CONFLICT",
+        "EV_PRICE_CONFLICT"
+      ],
+      "expect_ok": true,
+      "why": "口径相同还是差 22%，这才是真冲突：至少有一条是错的。"
+    },
+    {
+      "id": "E30",
+      "name": "不同规格的价不是冲突（128GB 899 / 256GB 1099）",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/a",
+          "observed_at": "2026-10-29",
+          "variant": "128GB"
+        },
+        {
+          "kind": "price",
+          "claim": "1099",
+          "value": 1099,
+          "source_type": "official",
+          "url": "https://example.com/b",
+          "observed_at": "2026-10-29",
+          "variant": "256GB"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_CONFLICT",
+        "EV_PRICE_BASIS_DIFF"
+      ],
+      "expect_ok": true,
+      "why": "不同规格是两个商品，价格不同天经地义。缺的是「你要买哪个规格」，不是数据错误。"
+    },
+    {
+      "id": "E31",
+      "name": "不同地区的价不是冲突（国行 899 / 美版 1099）",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/a",
+          "observed_at": "2026-10-29",
+          "region": "CN"
+        },
+        {
+          "kind": "price",
+          "claim": "1099",
+          "value": 1099,
+          "source_type": "official",
+          "url": "https://example.com/b",
+          "observed_at": "2026-10-29",
+          "region": "US"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_CONFLICT",
+        "EV_PRICE_BASIS_DIFF"
+      ],
+      "expect_ok": true,
+      "why": "地区差价是正常的商业事实，不是数据错误。"
+    },
+    {
+      "id": "E32",
+      "name": "含税 1099 与不含税 899：口径不同，但到手价只能取含税",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "1099",
+          "value": 1099,
+          "source_type": "official",
+          "url": "https://example.com/a",
+          "observed_at": "2026-10-29",
+          "price_basis": "tax_inclusive"
+        },
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/b",
+          "observed_at": "2026-10-29",
+          "price_basis": "tax_exclusive"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_CONFLICT",
+        "EV_PRICE_BASIS_DIFF"
+      ],
+      "expect_ok": true,
+      "why": "两者都不是错的，但到手价是含税那个。判冲突会掩盖真正的问题：用户说 899 时，实际要付的是 1099。"
+    },
+    {
+      "id": "E33",
+      "name": "页面价在提供的正文里根本不存在",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/p",
+          "observed_at": "2026-10-29",
+          "page_price": 899,
+          "page_text": "本店售价 1299 元，全国联保，支持七天无理由退货。"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_PAGE_TEXT_NO_QUOTE"
+      ],
+      "expect_ok": false,
+      "why": "报价上下文核验：给了正文，正文里却没有这个价——要么抄错了，要么这段正文不是这个报价所在的页面。"
+    },
+    {
+      "id": "E34",
+      "name": "页面正文与声明的哈希对不上",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/p",
+          "observed_at": "2026-10-29",
+          "page_price": 899,
+          "page_text": "本店售价 899 元，全国联保。",
+          "page_text_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_PAGE_TEXT_HASH_MISMATCH"
+      ],
+      "expect_ok": false,
+      "why": "哈希自洽性只证明「给的正文没被改过」。连这一条都过不了，这条页面证据本身就不能用。"
+    },
+    {
+      "id": "E35",
+      "name": "正向对照：正文里确有这个价且哈希自洽",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/p",
+          "observed_at": "2026-10-29",
+          "page_price": 899,
+          "page_text": "本店售价 899 元，全国联保，支持七天无理由退货。",
+          "page_text_sha256": "c172e85ca4985046c269e3b534bf551bc3e7666e1180ee9b97febd092eb5e9f5"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [],
+      "expect_ok": true,
+      "why": "哈希由脚本重算填对；这里只验证「正文里确有这个价」不会误报。"
     }
   ]
 }

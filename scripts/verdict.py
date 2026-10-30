@@ -149,6 +149,8 @@ ALT_PROBLEM_ZH = {
     "ALT_PRICE_STALE": "替代品的报价已过期或没有日期，不能当作现价",
     "ALT_PRICE_CONTENT_MISMATCH": "替代品的报价与页面上看到的价格不一致，这条证据自相矛盾",
     "ALT_PAGE_PRICE_INVALID": "替代品的页面价填了 0、负数或不是数字，等于没做过页面核对",
+    "ALT_PAGE_TEXT_HASH_MISMATCH": "替代品提供的页面正文与声明的哈希对不上，不能当页面证据",
+    "ALT_PAGE_TEXT_NO_QUOTE": "替代品声称的页面价在提供的页面内容里找不到",
     "ALT_OVER_BUDGET": "替代方案同样超出你的承受能力，换过去并不能解决问题",
     "ALT_NEEDS_TIME": "替代方案同样需要跨月支出，换过去并不能解决问题",
     "ALT_BUDGET_UNKNOWN": "替代方案的预算状态无法确认，不能据此给出替换建议",
@@ -166,6 +168,8 @@ ALT_AUDIT_CODE = {
     "ALT_PRICE_STALE": "AUD_ALT_PRICE_STALE",
     "ALT_PRICE_CONTENT_MISMATCH": "AUD_ALT_UNVERIFIED_PRICE",
     "ALT_PAGE_PRICE_INVALID": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_PAGE_TEXT_HASH_MISMATCH": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_PAGE_TEXT_NO_QUOTE": "AUD_ALT_UNVERIFIED_PRICE",
     "ALT_OVER_BUDGET": "AUD_ALT_OVER_BUDGET",
     "ALT_NEEDS_TIME": "AUD_ALT_BUDGET_UNVERIFIED",
     "ALT_BUDGET_UNKNOWN": "AUD_ALT_BUDGET_UNVERIFIED",
@@ -529,11 +533,13 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
             and str(e.get("subject") or "target").strip().lower() == "target"
             and isinstance(e.get("value"), (int, float)) and e.get("value") > 0
         ]
-        # 只用**最可信那一档**来源的价比对。否则一条社区报价就能把
-        # "输入价 vs 官方价"的冲突盖掉——600 凑近社区 599，官方 899 被无视。
-        # 没有可信来源时退回全部报价：那种情况另有 AUD_PRICE_UNVERIFIED 兜底。
+        # 只用**最可信那一档**来源的价比对，而且只比**到手价口径**那一组。
+        # 否则两件事都会被搞错：一条社区报价就能把"输入价 vs 官方价"的冲突盖掉
+        # （600 凑近社区 599，官方 899 被无视）；官方标价 1099 与促销 899 并存时，
+        # 拿标价去卡输入价 899 又会报一个假的"不一致"。
         credible = ev.credible_price_values(evidence, "target")
-        compare = credible or ev_prices
+        settle, _amb = ev.settlement_basis_values(evidence, "target")
+        compare = settle or credible or ev_prices
         if compare:
             near = [p for p in compare if abs(p - price) / price <= 0.05]
             if not near:
@@ -542,7 +548,8 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
                         "AUD_PRICE_MISMATCH", "BLOCK" if verdict in ("BUY", "SWITCH") else "WARN",
                         f"商品价格 {price} 与证据价格 {compare} 不一致（>5%），须说明口径",
                         {"stated": price, "evidence": compare,
-                         "tier_used": "best" if credible else "any"},
+                         "tier_used": "best" if credible else "any",
+                         "basis_used": "settlement" if settle else "any"},
                     )
                 )
 

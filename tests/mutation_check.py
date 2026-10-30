@@ -429,18 +429,24 @@ def _m49():
 
 @mutation("低可信报价也拿去凑近输入价（冲突被掩盖）")
 def _m50():
-    def any_tier(items, subject="target", max_tier=3):
-        out = []
-        for item in items or []:
-            if not isinstance(item, dict) or item.get("kind") not in evidence.PRICE_KINDS:
-                continue
-            if str(item.get("subject") or "target").strip().lower() != subject:
-                continue
-            value = item.get("value")
-            if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
-                out.append(float(value))
-        return out
-    return _set(evidence, "credible_price_values", any_tier)
+    """到手价那一组里**不挑等级**，口述/社区报价也拿去和输入价比。
+
+    官方 1200 + 社区 899 时，用户说 900 就会"和 899 对上了"——官方价与输入价
+    的冲突被一条不可信的报价盖掉，结论从暂缓变成建议购买。
+    """
+    def loose(items, subject="target", max_tier=3):
+        groups = evidence.price_basis_groups(items, subject, 5)
+        if not groups:
+            return [], "NO_CREDIBLE"
+        ranked = sorted(groups.items(),
+                        key=lambda kv: evidence.PRICE_BASIS_PRIORITY.get(kv[0][0], 5))
+        top = evidence.PRICE_BASIS_PRIORITY.get(ranked[0][0][0], 5)
+        tied = [kv for kv in ranked
+                if evidence.PRICE_BASIS_PRIORITY.get(kv[0][0], 5) == top]
+        if len(tied) > 1:
+            return [], "AMBIGUOUS"
+        return [v for _, v in tied[0][1]], None
+    return _set(evidence, "settlement_basis_values", loose)
 
 
 @mutation("同等级来源互相打架也照常下结论")
@@ -453,6 +459,94 @@ def _m54():
     def loose(value):
         return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
     return _set(evidence, "_positive_number", loose)
+
+
+# --- 第七轮补充复核：针对 ChatGPT 指出的三个漏洞各加有效变异
+
+@mutation("汇率只查区间不查合理性（USD/CNY=1 与 =100 放行）")
+def _m55():
+    orig = evidence.fx_plausibility
+
+    def loose(item, as_of=None):
+        out = orig(item, as_of)
+        out["ok"] = True
+        out["why"] = None
+        return out
+    return _set(evidence, "fx_plausibility", loose)
+
+
+@mutation("页面正文核验不做，只填 page_price 就给最高级")
+def _m56():
+    orig = evidence.page_quote_check
+
+    def loose(item, tolerance=0.02):
+        out = dict(orig(item, tolerance))
+        if out["level"] is None and out["problem"] in ("PAGE_TEXT_NO_QUOTE",
+                                                       "PAGE_TEXT_HASH_MISMATCH"):
+            out["problem"] = None
+            out["level"] = "content"
+        return out
+    return _set(evidence, "page_quote_check", loose)
+
+
+@mutation("页面正文哈希不重算")
+def _m57():
+    orig = evidence.page_quote_check
+
+    def loose(item, tolerance=0.02):
+        out = dict(orig(item, tolerance))
+        if out["problem"] == "PAGE_TEXT_HASH_MISMATCH":
+            out["problem"] = None
+            out["level"] = "content"
+        return out
+    return _set(evidence, "page_quote_check", loose)
+
+
+@mutation("报价分组忽略规格与地区（不同规格也被当成同一把尺）")
+def _m58():
+    def loose(item):
+        return (evidence._norm_basis(item), "", "")
+    return _set(evidence, "price_comparison_key", loose)
+
+
+@mutation("到手价口径优先级反过来（先取官方标价）")
+def _m59():
+    return _set(evidence, "PRICE_BASIS_PRIORITY",
+                {"msrp": 0, "street": 1, "promo": 2, "tax_inclusive": 3,
+                 "tax_exclusive": 4})
+
+
+@mutation("口径并列时不判分不出来，取第一组就往下算")
+def _m60():
+    orig = evidence.settlement_basis_values
+
+    def loose(items, subject="target", max_tier=3):
+        values, ambiguity = orig(items, subject, max_tier)
+        if ambiguity == "AMBIGUOUS":
+            groups = evidence.price_basis_groups(items, subject, max_tier)
+            first = next(iter(groups.values()))
+            return [v for _, v in first], None
+        return values, ambiguity
+    return _set(evidence, "settlement_basis_values", loose)
+
+
+@mutation("冲突判定忽略口径分组（所有可信报价塞进同一组比）")
+def _m61():
+    def loose(groups, tolerance=evidence.SAME_TIER_CONFLICT_TOLERANCE):
+        flat = [v for pairs in (groups or {}).values() for _, v in pairs]
+        return evidence.tier_conflict(flat, tolerance) and {} or {}
+    return _set(evidence, "basis_conflicts", loose)
+
+
+@mutation("汇率报告把「页面内容核验」也报成通过")
+def _m62():
+    orig = evidence.fx_rate_report
+
+    def loose(item, base, as_of=None):
+        out = dict(orig(item, base, as_of))
+        out["content"] = {"ok": True, "why": None}
+        return out
+    return _set(evidence, "fx_rate_report", loose)
 
 
 @mutation("只要有 page_price 字段就算页面核对过")

@@ -62,6 +62,34 @@ def extract_prices(html: str) -> list:
     return sorted(out, key=lambda x: (x["currency"], x["amount"]))
 
 
+def strip_tags(html: str) -> str:
+    """把 HTML 去掉标签、压平空白，得到一段"人眼可读"的正文。
+
+    只为取证留痕用：探针不解析语义，只保留数字和它周围的上下文。
+    """
+    no_script = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html)
+    text = re.sub(r"(?s)<[^>]+>", " ", no_script)
+    text = re.sub(r"&nbsp;?", " ", text)
+    text = re.sub(r"&amp;", "&", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def snippet(text: str, expect: float, currency: str, window: int = 160) -> str | None:
+    """价格出现处左右各取一段正文。这是**报价上下文**的可核验载体。"""
+    sym = {"USD": "$", "CNY": "¥", "EUR": "€", "GBP": "£"}.get(currency, "")
+    pat = re.escape(sym) + r"\s?" + re.escape(_fmt(expect))
+    m = re.search(pat, text)
+    if not m:
+        m = re.search(r"(?<![\d.])" + re.escape(_fmt(expect)) + r"(?![\d])", text)
+    if not m:
+        return None
+    return text[max(0, m.start() - window): m.end() + window]
+
+
+def _fmt(value: float) -> str:
+    return f"{value:.2f}" if abs(value - round(value)) > 1e-9 else str(int(value))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="抓一次真实报价并记录")
     ap.add_argument("--url", required=True)
@@ -83,11 +111,16 @@ def main(argv=None) -> int:
     found = [p for p in prices
              if p["currency"] == args.currency and abs(p["amount"] - args.expect) < 0.005]
 
+    plain = strip_tags(text)
+    quote = snippet(plain, args.expect, args.currency)
     record = {
         "_howto": [
             "本文件由 tests/real_quote_probe.py 生成，是一份**抓取留痕**。",
-            "它证明：这个 URL 在 fetched_at 返回的正文里出现过 claim_price 这个数字。",
+            "它证明三件事：这个 URL 在 fetched_at 返回了正文（body_sha256）；"
+            "正文里出现过 claim_price 这个数字；page_text 是价格出现处的原文片段。",
             "它**不**证明该域名是官方渠道，也不证明现在还是这个价。",
+            "page_text_sha256 只证明「这段片段与声明的哈希一致」，"
+            "**不**证明片段来自这个 URL——取证方仍可能贴一段自己写的文字。",
             "重新生成：python tests/real_quote_probe.py --url ... --expect ... --out 本文件",
         ],
         "url": args.url,
@@ -100,6 +133,11 @@ def main(argv=None) -> int:
         "matched": bool(found),
         "page_prices": prices[:60],
         "page_price_count": len(prices),
+        "page_text": quote,
+        "page_text_sha256": (hashlib.sha256(quote.encode("utf-8")).hexdigest()
+                             if quote else None),
+        "page_price_set": [p["amount"] for p in prices
+                           if p["currency"] == args.currency],
     }
 
     if args.out:
@@ -109,7 +147,8 @@ def main(argv=None) -> int:
 
     print(json.dumps({k: record[k] for k in
                       ("url", "http_status", "body_bytes", "claim_price",
-                       "currency", "matched", "page_price_count")},
+                       "currency", "matched", "page_price_count",
+                       "page_text_sha256")},
                      ensure_ascii=False, indent=2))
     return 0 if record["matched"] else 4
 

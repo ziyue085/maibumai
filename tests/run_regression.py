@@ -287,7 +287,7 @@ def run_pipeline():
 
 
 def run_fxguard():
-    """汇率进入计算之前的七道关。
+    """汇率进入计算之前的八道关。
 
     ``nan`` / ``inf`` / ``10**400`` 这些值写不进 JSON（不是合法的 JSON 数字），
     所以在 Python 里直接构造——正好也覆盖"调用方传进来一个脏 dict"这条真实路径：
@@ -295,6 +295,13 @@ def run_fxguard():
 
     要守的只有一条：**不许它们在换算之前溜过去**。先算出来、再拦下来是没用的——
     一个 1e7 的价格已经进了预算、等级和结论。
+
+    八道关分两类，别混为一谈：
+
+    - **合法性**（能不能进算式）：正的有限数、币种认得、在绝对边界内；
+    - **合理性**（离不离谱）：与该币种对的锚点量级相差不超过允许倍数。
+
+    USD/CNY=1 是合法的正数，但不合理。只查合法性会把它放过去。
     """
     out = []
 
@@ -347,6 +354,28 @@ def run_fxguard():
     check("F11", "非有限的商品价同样是数据不成立",
           "EV_PRICE_VALUE_INVALID" in codes and not res["ok"],
           f"{sorted(codes)} ok={res['ok']}")
+
+    # --- F12-F15：数值区间合法 ≠ 汇率合理。
+    # 1 和 100 都落在 1e-4~1e4 里，但离 USD/CNY 的量级差了 7 倍和 14 倍。
+    check("F12", "USD/CNY=1 被拒（区间内但不合理）",
+          rej(fx(1)) == "FX_IMPLAUSIBLE", rej(fx(1)))
+    check("F13", "USD/CNY=100 被拒（区间内但不合理）",
+          rej(fx(100)) == "FX_IMPLAUSIBLE", rej(fx(100)))
+    check("F14", "区间内且合理的汇率放行（正向对照）",
+          rej(fx(7.2)) is None and rej(fx(6.5)) is None and rej(fx(8.5)) is None,
+          f"{rej(fx(7.2))} / {rej(fx(6.5))} / {rej(fx(8.5))}")
+    report = evidence.fx_rate_report(fx(7.2), "CNY", FIXTURE_TODAY)
+    check("F15", "四层检查分开报：合法性/合理性/来源可过，页面内容核验恒为否",
+          report["validity"]["ok"] and report["plausibility"]["ok"]
+          and report["source"]["ok"] and report["content"]["ok"] is False
+          and report["accepted"] is True,
+          report)
+    deep = evidence.fx_rate_report(fx(1), "CNY", FIXTURE_TODAY)
+    check("F16", "被拒的汇率在报告里写明是合理性这一层不过",
+          deep["validity"]["ok"] and deep["plausibility"]["ok"] is False
+          and deep["plausibility"]["why"] == "FX_IMPLAUSIBLE"
+          and deep["rejection"] == "FX_IMPLAUSIBLE",
+          deep)
     return out
 
 
@@ -393,6 +422,58 @@ def run_pageguard():
           evidence.quote_content_problem(item(None)) is None
           and not evidence.page_price_ok(item(None)),
           evidence.quote_content_problem(item(None)))
+
+    # --- G10-G14：page_price 只能证明"取证方自述"，不能证明"页面核对过"。
+    # 要拿到 content 级，必须给出可复核的页面内容，且引擎自己能在里面找到这个价。
+    import hashlib as _hl
+
+    def sha(text):
+        return _hl.sha256(text.encode("utf-8")).hexdigest()
+
+    good_text = "本店售价 899 元，全国联保，支持七天无理由退货。"
+    other_text = "本店售价 1299 元，全国联保，支持七天无理由退货。"
+
+    check("G10", "只填 page_price、没有页面内容 → reported 级（取证方自述）",
+          evidence.page_quote_check(item(899))["level"] == "reported"
+          and evidence.page_quote_check(item(899))["problem"] is None,
+          evidence.page_quote_check(item(899)))
+
+    g11 = item(899)
+    g11["page_text"] = good_text
+    g11["page_text_sha256"] = sha(good_text)
+    check("G11", "正文里确有这个价且哈希自洽 → content 级（引擎可复核）",
+          evidence.page_quote_check(g11)["level"] == "content"
+          and evidence.page_quote_check(g11)["problem"] is None,
+          evidence.page_quote_check(g11))
+
+    g12 = item(899)
+    g12["page_text"] = other_text
+    g12["page_text_sha256"] = sha(other_text)
+    check("G12", "正文里没有这个价 → 报价上下文核验失败，拿不到任何等级",
+          evidence.page_quote_check(g12)["problem"] == "PAGE_TEXT_NO_QUOTE"
+          and evidence.page_quote_check(g12)["level"] is None,
+          evidence.page_quote_check(g12))
+
+    g13 = item(899)
+    g13["page_text"] = good_text
+    g13["page_text_sha256"] = sha(good_text + "！")
+    check("G13", "正文与声明哈希不符 → 这条页面证据不能用",
+          evidence.page_quote_check(g13)["problem"] == "PAGE_TEXT_HASH_MISMATCH"
+          and evidence.page_quote_check(g13)["level"] is None,
+          evidence.page_quote_check(g13))
+
+    # 不贴正文时的退路：给页面价格集合，同样要能被核对
+    g14 = item(899)
+    g14["page_price_set"] = [1299.0, 1599.0]
+    check("G14", "只给页面价格集合时，集合里没有这个价照样被抓出来",
+          evidence.page_quote_check(g14)["problem"] == "PAGE_TEXT_NO_QUOTE"
+          and evidence.page_quote_check(g14)["level"] is None,
+          evidence.page_quote_check(g14))
+    g15 = item(899)
+    g15["page_price_set"] = [899.0, 1299.0]
+    check("G15", "页面价格集合里有这个价 → content 级（正向对照）",
+          evidence.page_quote_check(g15)["level"] == "content",
+          evidence.page_quote_check(g15))
     return out
 
 
@@ -645,19 +726,35 @@ def run_realquote():
         date_ok = False
     check("Q0b", "抓取日期可解析", date_ok, fetched)
 
+    # --- Q0c 记录里必须有"可复核的页面内容"，否则后面关于 content 级的断言无从谈起
+    snippet = record.get("page_text")
+    snippet_digest = str(record.get("page_text_sha256") or "")
+    snippet_ok = (isinstance(snippet, str) and str(claim) in snippet
+                  and len(snippet_digest) == 64
+                  and all(ch in "0123456789abcdef" for ch in snippet_digest))
+    check("Q0c", "记录带页面正文片段与片段哈希（可复核内容）", snippet_ok,
+          {"has_snippet": bool(snippet), "sha_len": len(snippet_digest)})
+
     base_facts = {
         "finance.monthly_income": 2000, "finance.monthly_fixed_expense": 1500,
         "finance.savings_target_monthly": 0, "invest.monthly_contribution": 0,
         "finance.discretionary_override": 500,
     }
 
-    def draft(alt_value, page_price=None, with_page=True):
+    def draft(alt_value, page_price=None, with_page=True, with_text=False,
+              tamper_text=False):
         alt_ev = {"kind": "price", "claim": f"官网 {alt_value}",
                   "value": alt_value, "currency": record.get("currency"),
                   "subject": "alternative", "source_type": "official",
                   "url": url, "observed_at": fetched}
         if with_page and page_price is not None:
             alt_ev["page_price"] = page_price
+        if with_text and snippet:
+            # tamper_text 只改文字不改哈希：哈希自洽性检查必须抓到
+            alt_ev["page_text"] = (snippet + "（本行是事后加的）") if tamper_text else snippet
+            alt_ev["page_text_sha256"] = snippet_digest
+        elif with_text:
+            alt_ev["page_price_set"] = record.get("page_price_set") or []
         return {
             "product": {"name": "某云备份服务 1TB", "price": 8.95, "period": "month",
                         "currency": record.get("currency"), "category": "订阅/云存储"},
@@ -682,14 +779,22 @@ def run_realquote():
     profile = _fixture_profile({"base_currency": record.get("currency") or "USD",
                                 "facts": base_facts})
 
-    # --- Q1 报价与页面价一致 → 可以给 SWITCH，且标为 page 级
-    res = mbm._evaluate(draft(claim, page_price=claim), profile)
+    # --- Q1 报价与页面价一致，且给了可复核的正文 → content 级（引擎自己能复核）
+    res = mbm._evaluate(draft(claim, page_price=claim, with_text=True), profile)
     alt = res["numbers"].get("alternative") or {}
-    check("Q1", "页面价一致时可给替换建议（page 级）",
+    check("Q1", "给了页面正文且正文里确有这个价 → content 级，可给替换建议",
           res["verdict"]["verdict"] == "SWITCH" and res["ok"] is True
-          and alt.get("price_verified") == "page" and not alt.get("problems"),
+          and alt.get("price_verified") == "content" and not alt.get("problems"),
           {"verdict": res["verdict"]["verdict"], "ok": res["ok"],
            "verified": alt.get("price_verified"), "problems": alt.get("problems")})
+
+    # --- Q1b 只填 page_price、不给正文 → 降为 reported 级（取证方自述）
+    res1b = mbm._evaluate(draft(claim, page_price=claim, with_text=False), profile)
+    alt1b = res1b["numbers"].get("alternative") or {}
+    check("Q1b", "只填页面价不给正文 → reported 级，不许说成引擎核对过",
+          res1b["verdict"]["verdict"] == "SWITCH"
+          and alt1b.get("price_verified") == "reported",
+          {"verdict": res1b["verdict"]["verdict"], "verified": alt1b.get("price_verified")})
 
     # --- Q2 有人把引用价写成页面价的七成：证据自相矛盾 → 不给 SWITCH
     fake = round(float(claim) * 0.7, 2)
@@ -711,42 +816,76 @@ def run_realquote():
            "verified": alt3.get("price_verified")})
 
     # --- Q4/Q5 把这套检查的**证明边界**钉住，别让它被当成"内容已核实"
-    #
-    # body_sha256 能证明的只有一件事：这个 URL 在 fetched_at 那一刻返回的正文，
-    # 哈希是这个值、正文里出现过 claim_price 这个数字。
-    # 它证明不了：域名是否官方、现在还是不是这个价、取证方是否真读了页面。
-    # 下面两条把"能抓到的"和"抓不到的"分别固化成断言。
 
-    # Q4 抓不到的：page_price 是不是**真的**来自那个页面。
-    # 这里故意用一个页面上没有的数字，系统照样会判"页面核对过"——这是已知限制。
+    # Q4 不给正文时，page_price 是不是**真的**来自那个页面，仍然查不出来。
+    # 这里故意用一个页面上没有的数字：只填 page_price 照样能拿到 reported 级。
+    # 这是已知限制，不是已修好的功能——要堵住它只能靠取证方交出可复核的内容。
     ghost = round(float(claim) * 3 + 0.01, 2)
     on_page = any(abs(float(p["amount"]) - ghost) < 0.005
                   and p.get("currency") == record.get("currency") for p in prices)
-    res4 = mbm._evaluate(draft(ghost, page_price=ghost), profile)
+    res4 = mbm._evaluate(draft(ghost, page_price=ghost, with_text=False), profile)
     alt4 = res4["numbers"].get("alternative") or {}
-    check("Q4", "已知限制：页面价无法自证来自页面（sha256 也管不了这一条）",
+    check("Q4", "已知限制：不给页面正文时，页面价无法自证来自页面",
           (not on_page)
           and res4["verdict"]["verdict"] == "SWITCH"
-          and alt4.get("price_verified") == "page",
+          and alt4.get("price_verified") == "reported",
           {"ghost": ghost, "on_page": on_page,
            "verdict": res4["verdict"]["verdict"], "verified": alt4.get("price_verified")})
 
-    # Q5 抓得到的：引用价与"页面上确实有、但不是这一个"的价格不符时会被抓出来。
+    # Q5 但**给了正文**就能查出来：这个价在正文里根本不存在。
+    res5g = mbm._evaluate(draft(ghost, page_price=ghost, with_text=True), profile)
+    alt5g = res5g["numbers"].get("alternative") or {}
+    check("Q5", "给了页面正文后，正文里没有的价格会被抓出来（报价上下文核验）",
+          res5g["verdict"]["verdict"] == "DEFER"
+          and "ALT_PAGE_TEXT_NO_QUOTE" in (alt5g.get("problems") or [])
+          and alt5g.get("price_verified") is None,
+          {"ghost": ghost, "verdict": res5g["verdict"]["verdict"],
+           "problems": alt5g.get("problems"), "verified": alt5g.get("price_verified")})
+
+    # Q6 正文与声明的哈希对不上：这条"页面证据"本身不可信
+    res6 = mbm._evaluate(draft(claim, page_price=claim, with_text=True,
+                               tamper_text=True), profile)
+    alt6 = res6["numbers"].get("alternative") or {}
+    check("Q6", "正文被改动后与声明哈希不符 → 不给替换建议",
+          res6["verdict"]["verdict"] == "DEFER"
+          and "ALT_PAGE_TEXT_HASH_MISMATCH" in (alt6.get("problems") or []),
+          {"verdict": res6["verdict"]["verdict"], "problems": alt6.get("problems")})
+
+    # Q7 已知限制固化：哈希只证明"给的正文和声明的哈希一致"，
+    # 证明不了正文来自那个 URL。取证方贴一段自己写的、哈希自洽的文字，
+    # 引擎照样会给 content 级——这一点本仓库堵不住，只能靠取证方诚实。
+    forged = (f"本店特价 {claim} 元，仅此一天。" if not snippet
+              else f"本店特价 {claim}，仅此一天。")
+    import hashlib as _hashlib
+    res7 = mbm._evaluate(draft(claim, page_price=claim, with_text=False), profile)
+    alt7ev = dict(((res7["evidence"] or [{}])[-1]) or {})
+    forged_item = {k: v for k, v in alt7ev.items()}
+    forged_item["page_price"] = claim
+    forged_item["page_text"] = forged
+    forged_item["page_text_sha256"] = _hashlib.sha256(
+        forged.encode("utf-8")).hexdigest()
+    import evidence as _ev
+    forged_check = _ev.page_quote_check(forged_item)
+    check("Q7", "已知限制：自造一段哈希自洽的正文也能拿到 content 级",
+          forged_check["level"] == "content" and forged_check["problem"] is None,
+          {"check": forged_check})
+
+    # Q8 抓得到的：引用价与"页面上确实有、但不是这一个"的价格不符时会被抓出来。
     others = sorted({round(float(p["amount"]), 2) for p in prices
                      if p.get("currency") == record.get("currency")
                      and float(p["amount"]) > 0
                      and abs(float(p["amount"]) - float(claim)) > 0.005})
     if not others:
-        check("Q5", "页面上有其他价格可用于对照", False, f"记录里只有 {prices}")
+        check("Q8", "页面上有其他价格可用于对照", False, f"记录里只有 {prices}")
     else:
         other = others[-1]
-        res5 = mbm._evaluate(draft(claim, page_price=other), profile)
-        alt5 = res5["numbers"].get("alternative") or {}
-        check("Q5", "引用价与页面上真实存在的另一个价格不符时被拦下",
-              res5["verdict"]["verdict"] == "DEFER"
-              and "ALT_PRICE_CONTENT_MISMATCH" in (alt5.get("problems") or []),
-              {"other": other, "verdict": res5["verdict"]["verdict"],
-               "problems": alt5.get("problems")})
+        res8 = mbm._evaluate(draft(claim, page_price=other), profile)
+        alt8 = res8["numbers"].get("alternative") or {}
+        check("Q8", "引用价与页面上真实存在的另一个价格不符时被拦下",
+              res8["verdict"]["verdict"] == "DEFER"
+              and "ALT_PRICE_CONTENT_MISMATCH" in (alt8.get("problems") or []),
+              {"other": other, "verdict": res8["verdict"]["verdict"],
+               "problems": alt8.get("problems")})
     return out
 
 

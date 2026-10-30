@@ -246,7 +246,41 @@
               "null"
             ],
             "exclusiveMinimum": 0,
-            "description": "取证方读完页面后**原样**记下的价格，必须是正的有限数。填了且与 value 一致（±2%）才算做过「页面核对」（price_verified=page）；差超过 2% 判 EV_QUOTE_CONTENT_MISMATCH；填 0、负数、布尔、NaN、Infinity 判 EV_PAGE_PRICE_INVALID——**等于没填，且换不来 page 级标记**。不填或填 null 只到 source 级。⚠️ 系统只做减法：不能证明你真的读了页面，也不能证明这个数字来自页面正文。"
+            "description": "取证方读完页面后**原样**记下的价格，必须是正的有限数。填了且与 value 一致（±2%）才算「取证方自述读过页面」（price_verified=reported）；差超过 2% 判 EV_QUOTE_CONTENT_MISMATCH；填 0、负数、布尔、NaN、Infinity 判 EV_PAGE_PRICE_INVALID——**等于没填，且换不来任何核验等级**。⚠️ 只有 page_price 时引擎无法复核，不给 content 级。"
+          },
+          "page_text": {
+            "type": "string",
+            "description": "页面上包含该价格的一段正文（或全文）。给了它，引擎才**有可能**复核：重算 page_text_sha256 并在正文里找这个价，两者都过才给 price_verified=content。找不到判 EV_PAGE_TEXT_NO_QUOTE。"
+          },
+          "page_text_sha256": {
+            "type": "string",
+            "description": "page_text 的 sha256（小写十六进制 64 位）。引擎会重算比对；不符判 EV_PAGE_TEXT_HASH_MISMATCH。⚠️ 它只证明「这段正文与声明的哈希一致、中途没被改」，**不**证明正文来自那个 URL，也不证明域名权威。"
+          },
+          "page_price_set": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "不方便贴正文时的退路：页面上出现过的价格集合。引擎同样会在集合里找报价，找不到判 EV_PAGE_TEXT_NO_QUOTE。"
+          },
+          "price_basis": {
+            "type": "string",
+            "enum": [
+              "tax_inclusive",
+              "street",
+              "promo",
+              "msrp",
+              "tax_exclusive"
+            ],
+            "description": "价格口径。不同口径的价可以同时为真（官方标价 1099 与促销 899 不是数据打架，报 EV_PRICE_BASIS_DIFF）。到手价优先级：tax_inclusive > street > promo > msrp > tax_exclusive。不填视为 unknown：无法判断是否可比，差 5% 以上时暂缓（EV_PRICE_BASIS_UNKNOWN）。"
+          },
+          "variant": {
+            "type": "string",
+            "description": "规格/型号（如 128GB、256GB）。规格不同的报价不是同一商品，不参与冲突判定；并列存在且未标明要买哪个时暂缓。"
+          },
+          "region": {
+            "type": "string",
+            "description": "销售地区（如 CN、US）。地区差价是正常商业事实，不是数据错误；未标明要买哪个版本时暂缓。"
           }
         },
         "required": [

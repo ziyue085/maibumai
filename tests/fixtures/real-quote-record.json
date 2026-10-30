@@ -1,12 +1,15 @@
 {
   "_howto": [
     "本文件由 tests/real_quote_probe.py 生成，是一份**抓取留痕**。",
-    "它证明：这个 URL 在 fetched_at 返回的正文里出现过 claim_price 这个数字。",
+    "它证明三件事：这个 URL 在 fetched_at 返回了正文（body_sha256）；",
+    "正文里出现过 claim_price 这个数字；page_text 是价格出现处的原文片段。",
     "它**不**证明该域名是官方渠道，也不证明现在还是这个价。",
+    "page_text_sha256 只证明「这段片段与声明的哈希一致」，",
+    "**不**证明片段来自这个 URL——取证方仍可能贴一段自己写的文字。",
     "重新生成：python tests/real_quote_probe.py --url ... --expect ... --out 本文件"
   ],
   "url": "https://www.backblaze.com/cloud-storage/pricing",
-  "fetched_at": "2026-10-29",
+  "fetched_at": "2026-10-30",
   "http_status": 200,
   "body_bytes": 243937,
   "body_sha256": "381f496f1c1801e7aa669ae779b974e18935649bc85d273e7d36e59a4146eecb",
@@ -43,5 +46,16 @@
       "currency": "USD"
     }
   ],
-  "page_price_count": 7
+  "page_price_count": 7,
+  "page_text": "ction of the cost. Backblaze B2 Purpose-built for active archiving, backup, and recovery with compliance, media, and application workload management. Starts at $ 6.95 / TB / mo Get Quote Start Free Pay as you go monthly or for capacity annually No minimum file size or storage duration fees Assisted data migration available D",
+  "page_text_sha256": "88ed4105b3ed8d04d2f8f622157c06f993c8515dd9ba59fa7552c678b791b38d",
+  "page_price_set": [
+    0.0,
+    0.01,
+    1.0,
+    5.0,
+    6.95,
+    15.0,
+    1560.0
+  ]
 }

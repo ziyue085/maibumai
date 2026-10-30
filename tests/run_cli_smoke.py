@@ -330,6 +330,22 @@ def main() -> int:
                   fx_res["result"]["product"].get("price") is None,
                   fx_res["result"]["product"])
 
+        # 区间内但不合理：USD/CNY=1 落在 1e-4~1e4 里，旧代码会放行
+        import copy as _copy
+        mild_fx = _copy.deepcopy(dirty_fx)
+        mild_fx["evidence"][1]["claim"] = "USD/CNY 1"
+        mild_fx["evidence"][1]["value"] = 1
+        mild_res = ctx.json("judge", "--input", ctx.write("mild-fx.json", mild_fx))
+        mild_codes = {f["code"] for f in
+                      mild_res["result"]["gates"]["integrity"]["findings"]}
+        ctx.check("区间内但不合理的汇率同样不进计算（USD/CNY=1）",
+                  mild_res["result"]["verdict"]["verdict"] == "DEFER"
+                  and "EV_FX_UNTRUSTED" in mild_codes
+                  and mild_res["result"]["product"].get("price") is None,
+                  {"verdict": mild_res["result"]["verdict"]["verdict"],
+                   "price": mild_res["result"]["product"].get("price"),
+                   "codes": sorted(mild_codes)})
+
     finally:
         ctx.cleanup()
 

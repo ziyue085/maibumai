@@ -66,9 +66,9 @@
 
 ```bash
 python tests/check_repo.py          # 无个人数据指纹、JSON/Python、版本号
-python tests/run_regression.py      # 216 条夹具（10 层）
-python tests/mutation_check.py      # 54 个变异全部被语义断言捕获
-python tests/run_cli_smoke.py       # 43 步端到端
+python tests/run_regression.py      # 252 条夹具（10 层）
+python tests/mutation_check.py      # 62 个变异全部被语义断言捕获
+python tests/run_cli_smoke.py       # 44 步端到端
 python tests/windows_case_check.py  # Windows 关键路径（中文路径/编码/账本）
 ```
 

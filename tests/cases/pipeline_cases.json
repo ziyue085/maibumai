@@ -3723,6 +3723,542 @@
         "EV_QUOTE_CONTENT_MISMATCH"
       ],
       "why": "claim 写 600、页面价填 849：这条证据自己就矛盾，不能拿它当「更便宜」的依据。"
+    },
+    {
+      "id": "N8",
+      "name": "极端汇率不得参与换算",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000,
+          "finance.liquid_cash": 30000,
+          "finance.emergency_fund": 6000,
+          "finance.near_term_obligations": 8000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某海外耳机",
+          "price": 100,
+          "currency": "USD",
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "100",
+            "value": 100,
+            "source_type": "official",
+            "url": "https://example.com/u",
+            "observed_at": "2026-10-28",
+            "currency": "USD"
+          },
+          {
+            "kind": "fx",
+            "claim": "USD/CNY 100000",
+            "value": 100000,
+            "base": "USD",
+            "quote": "CNY",
+            "source_type": "official",
+            "url": "https://example.com/fx",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "查到数量级合理的可核验汇率后重新判断"
+      },
+      "why": "USD/CNY=100000 会让 100 美元变成一千万。旧代码只查正数和来源，它会被当作可用汇率乘进价格与预算。 复现时（旧代码）100 美元被乘成一千万，结论直接变成「不建议购买」。",
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ],
+      "expect_findings": [
+        "EV_CURRENCY_UNCONVERTED",
+        "EV_FX_UNTRUSTED"
+      ]
+    },
+    {
+      "id": "N9",
+      "name": "不在支持列表里的币种不给换算",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某海外耳机",
+          "price": 0.05,
+          "currency": "BTC",
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "0.05",
+            "value": 0.05,
+            "source_type": "official",
+            "url": "https://example.com/u",
+            "observed_at": "2026-10-28",
+            "currency": "BTC"
+          },
+          {
+            "kind": "fx",
+            "claim": "BTC/CNY 2000",
+            "value": 2000,
+            "base": "BTC",
+            "quote": "CNY",
+            "source_type": "official",
+            "url": "https://example.com/fx",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "用法币计价并查到可核验汇率后重新判断"
+      },
+      "why": "旧行为：BTC/CNY=2000 被接受，0.05 BTC 换成 100 元，结论是买。币种都不认识，换出来的数字没有任何意义。",
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "BUDGET_UNVERIFIED"
+      ],
+      "expect_findings": [
+        "EV_CURRENCY_UNCONVERTED",
+        "EV_FX_UNTRUSTED",
+        "EV_FX_INVALID"
+      ]
+    },
+    {
+      "id": "N10",
+      "name": "低可信报价不得掩盖官方价与输入价的冲突",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1200",
+            "value": 1200,
+            "source_type": "official",
+            "url": "https://example.com/official",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "ugc",
+            "url": "https://example.com/forum",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "确认到手价后重新判断"
+      },
+      "why": "官方 1200、社区 899，用户说 900。旧代码拿『有没有任何一条报价凑得近』判断，899 一凑就过了——官方价的冲突被社区价掩盖。现在只认最可信那一档。",
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "PRICE_UNVERIFIED"
+      ],
+      "expect_findings": [
+        "AUD_PRICE_MISMATCH",
+        "EV_CONFLICT",
+        "EV_UGC_PRICE"
+      ]
+    },
+    {
+      "id": "N11",
+      "name": "同一等级来源互相打架时不替用户挑",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 899,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "official",
+            "url": "https://example.com/official",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "1099",
+            "value": 1099,
+            "source_type": "official",
+            "url": "https://example.com/flagship",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "recheck_condition": "核对两个官方渠道的到手价后重新判断"
+      },
+      "why": "两个官方来源 899 与 1099：输入价 899 与其中一条吻合，旧代码就放行买了。同等级来源互相矛盾时，取哪一条都是替用户挑。",
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "PRICE_UNVERIFIED"
+      ],
+      "expect_findings": [
+        "EV_PRICE_CONFLICT",
+        "EV_CONFLICT"
+      ]
+    },
+    {
+      "id": "N12",
+      "name": "替代品页面价为 0：不给 page 级，也不给替换建议",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "上代同功能便宜三百"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "上代便宜三百"
+          }
+        ],
+        "alternative": {
+          "name": "同型号上代",
+          "price": 600,
+          "source": "某平台 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "600",
+            "value": 600,
+            "source_type": "official",
+            "url": "https://example.com/alt",
+            "observed_at": "2026-10-28",
+            "subject": "alternative",
+            "page_price": 0
+          }
+        ],
+        "recheck_condition": "重新核对替代品报价后判断"
+      },
+      "why": "page_price=0 在旧代码里算『填了页面价』：isinstance(0, (int, float)) 为真，于是拿到 page 级标记并给出替换建议。0 不是价格。",
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_PAGE_PRICE_INVALID"
+      ],
+      "expect_alt_verified": null,
+      "expect_findings": [
+        "EV_PAGE_PRICE_INVALID"
+      ]
+    },
+    {
+      "id": "N13",
+      "name": "替代品页面价为布尔值：同样不给替换建议",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "上代同功能便宜三百"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "上代便宜三百"
+          }
+        ],
+        "alternative": {
+          "name": "同型号上代",
+          "price": 600,
+          "source": "某平台 2026-10-28"
+        },
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "600",
+            "value": 600,
+            "source_type": "official",
+            "url": "https://example.com/alt",
+            "observed_at": "2026-10-28",
+            "subject": "alternative",
+            "page_price": true
+          }
+        ],
+        "recheck_condition": "重新核对替代品报价后判断"
+      },
+      "why": "布尔是 int 的子类：page_price=true 会被当成『页面价是 1 元』并拿到 page 级标记。",
+      "expect_verdict": "DEFER",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_PAGE_PRICE_INVALID"
+      ],
+      "expect_alt_verified": null,
+      "expect_findings": [
+        "EV_PAGE_PRICE_INVALID"
+      ]
+    },
+    {
+      "id": "N14",
+      "name": "反向对照：低可信报价不干扰合格路径",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 900,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "900",
+            "value": 900,
+            "source_type": "official",
+            "url": "https://example.com/official",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "price",
+            "claim": "905",
+            "value": 905,
+            "source_type": "ugc",
+            "url": "https://example.com/forum",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "why": "官方 900、社区 905、输入 900：最可信那一档对得上，就该照常买。把价格关收严不等于一律暂缓。",
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "AFFORDABLE_WITHIN_BUDGET"
+      ],
+      "expect_findings": [
+        "EV_UGC_PRICE"
+      ]
+    },
+    {
+      "id": "N15",
+      "name": "反向对照：合法汇率照常换算并允许购买",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某海外耳机",
+          "price": 100,
+          "currency": "USD",
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "100",
+            "value": 100,
+            "source_type": "official",
+            "url": "https://example.com/u",
+            "observed_at": "2026-10-28",
+            "currency": "USD"
+          },
+          {
+            "kind": "fx",
+            "claim": "USD/CNY 7.2",
+            "value": 7.2,
+            "base": "USD",
+            "quote": "CNY",
+            "source_type": "official",
+            "url": "https://example.com/fx",
+            "observed_at": "2026-10-28"
+          }
+        ]
+      },
+      "why": "7.2 在合理区间、来源合格、有链接、在保鲜期内：应当换算成 720 元并照常判断。汇率收紧不能变成『外币一律不买』。",
+      "expect_verdict": "BUY",
+      "expect_blocking": [],
+      "expect_ok": true,
+      "expect_enforced": [
+        "AFFORDABLE_WITHIN_BUDGET"
+      ]
     }
   ]
 }

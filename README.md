@@ -46,6 +46,11 @@ v0.6 往前推了一格：**没有报价证据就没有结论**。一条报价�
 画像迁移的旧数字一律标"待确认"，不替用户确认。
 另外拆清楚一件事：**链接长得像网址 ≠ 来源可信 ≠ 页面上的价就是你引用的价**。
 
+v0.7 修的是**脏数据进链路**：极端汇率、非法币种、`nan`/`inf` 这类"数值成立但不成立"的
+汇率，以前能一路乘进价格（`100000` 的汇率会把 100 美元变成一千万），现在在换算**之前**
+就被拒；低可信报价不再能掩盖官方价与输入价的冲突，**同一等级来源互相打架时谁都不采信**；
+页面价填 0、负数或布尔，换不来"页面核对过"的标记——以前填假页面价比老实留空还占便宜。
+
 ### 2. 财务判断分成六层，且是强制的
 
 存量与现金流必须分开——把两者混在一起，就会得出"月入 800 不能买 4000 的东西"这种荒谬结论。
@@ -152,9 +157,9 @@ python $M due / stats / export / doctor
 ## 测试
 
 ```bash
-python tests/run_regression.py     # 179 条规则夹具（8 层）
-python tests/mutation_check.py     # 47 个变异，验证夹具不是空转
-python tests/run_cli_smoke.py      # 41 步端到端生命周期
+python tests/run_regression.py     # 216 条规则夹具（10 层）
+python tests/mutation_check.py     # 54 个变异，验证夹具不是空转
+python tests/run_cli_smoke.py      # 43 步端到端生命周期
 python tests/windows_case_check.py # 11 项 Windows 关键路径（中文路径 / 编码 / 账本）
 python tests/check_repo.py         # 仓库自检：无个人数据指纹、JSON/Python、版本号
 ```

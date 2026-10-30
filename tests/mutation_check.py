@@ -350,10 +350,13 @@ def _m39():
 def _m40():
     orig = mbm._target_price_defect
 
-    def loose(ev_result, items, price, target_prices):
+    def loose(*args, **kwargs):
+        # 签名改成透传：这个函数多了 as_of / price_class 两个参数，
+        # 变异只改"行为"（空报价视为没问题），不该靠参数不匹配把代码搞崩
+        target_prices = args[3] if len(args) >= 4 else kwargs.get("target_prices")
         if not target_prices:
             return None
-        return orig(ev_result, items, price, target_prices)
+        return orig(*args, **kwargs)
     return _set(mbm, "_target_price_defect", loose)
 
 
@@ -394,9 +397,87 @@ def _m44():
     return _set(mbm, "PRICE_MISMATCH_TOLERANCE", 99.0)
 
 
-@mutation("不检查页面价与引用价是否一致")
+@mutation("不检查页面价（含 0/负数/布尔）是否站得住")
 def _m45():
     return _set(evidence, "quote_content_problem", lambda item, tolerance=0.02: None)
+
+
+@mutation("汇率不检查数量级")
+def _m48():
+    a1, r1 = _set(evidence, "FX_MIN_RATE", 0.0)
+    a2, r2 = _set(evidence, "FX_MAX_RATE", float("inf"))
+
+    def apply():
+        a1()
+        a2()
+
+    def restore():
+        r1()
+        r2()
+    return apply, restore
+
+
+@mutation("汇率不检查币种是否可换算")
+def _m49():
+    orig = evidence.fx_rejection
+
+    def loose(item, base, as_of=None):
+        why = orig(item, base, as_of)
+        return None if why == "FX_BAD_CURRENCY" else why
+    return _set(evidence, "fx_rejection", loose)
+
+
+@mutation("低可信报价也拿去凑近输入价（冲突被掩盖）")
+def _m50():
+    def any_tier(items, subject="target", max_tier=3):
+        out = []
+        for item in items or []:
+            if not isinstance(item, dict) or item.get("kind") not in evidence.PRICE_KINDS:
+                continue
+            if str(item.get("subject") or "target").strip().lower() != subject:
+                continue
+            value = item.get("value")
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+                out.append(float(value))
+        return out
+    return _set(evidence, "credible_price_values", any_tier)
+
+
+@mutation("同等级来源互相打架也照常下结论")
+def _m51():
+    return _set(evidence, "tier_conflict", lambda values, tolerance=0.05: False)
+
+
+@mutation("非有限数值（inf/nan）也当成正数")
+def _m54():
+    def loose(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+    return _set(evidence, "_positive_number", loose)
+
+
+@mutation("只要有 page_price 字段就算页面核对过")
+def _m52():
+    orig = mbm._alt_price_check
+
+    def loose(items, converted, as_of, price_class):
+        out = orig(items, converted, as_of, price_class)
+        if out.get("verified") is None and any(
+            isinstance(e, dict) and e.get("page_price") is not None for e in (items or [])
+        ):
+            out["problem"] = None
+            out["verified"] = "page"
+        return out
+    return _set(mbm, "_alt_price_check", loose)
+
+
+@mutation("目标侧的无效页面价不算缺陷")
+def _m53():
+    orig = evidence.quote_content_problem
+
+    def loose(item, tolerance=0.02):
+        why = orig(item, tolerance)
+        return None if why == "PAGE_PRICE_INVALID" else why
+    return _set(evidence, "quote_content_problem", loose)
 
 
 @mutation("替代品报价一律标成 page 级")

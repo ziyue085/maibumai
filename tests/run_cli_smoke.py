@@ -298,6 +298,38 @@ def main() -> int:
         ctx.json("profile", "confirm", "--key", "finance.monthly_income")
         ctx.check("可以确认旧信息仍然有效", True)
 
+        # 命令行也能走到引擎：脏汇率必须在换算之前被挡掉，
+        # 而不是换出一个荒谬数字再靠预算门"碰巧"拦住。
+        dirty_fx = {
+            "product": {"name": "某海外耳机", "price": 100, "currency": "USD",
+                        "category": "数码/耳机"},
+            "reasons": [
+                {"code": "NEED_REAL", "note": "旧耳机降噪失效已三个月"},
+                {"code": "PRICE_FAIR", "note": "官网就是这个价"},
+                {"code": "LOW_REGRET_RISK", "note": "支持七天无理由退货"},
+            ],
+            "evidence": [
+                {"kind": "price", "claim": "100 USD", "value": 100, "currency": "USD",
+                 "source_type": "official", "url": "https://example.com/usd",
+                 "observed_at": TODAY},
+                {"kind": "fx", "claim": "USD/CNY 100000", "value": 100000,
+                 "base": "USD", "quote": "CNY", "source_type": "official",
+                 "url": "https://example.com/fx", "observed_at": TODAY},
+            ],
+            "recheck_condition": "查到数量级合理的可核验汇率后重新判断",
+        }
+        fx_res = ctx.json("judge", "--input", ctx.write("dirty-fx.json", dirty_fx))
+        fx_codes = {f["code"] for f in
+                    fx_res["result"]["gates"]["integrity"]["findings"]}
+        ctx.check("极端汇率在命令行路径同样不进计算",
+                  fx_res["result"]["verdict"]["verdict"] == "DEFER"
+                  and "EV_FX_UNTRUSTED" in fx_codes
+                  and "EV_CURRENCY_UNCONVERTED" in fx_codes,
+                  {"verdict": fx_res["result"]["verdict"]["verdict"], "codes": sorted(fx_codes)})
+        ctx.check("极端汇率没有被乘进价格",
+                  fx_res["result"]["product"].get("price") is None,
+                  fx_res["result"]["product"])
+
     finally:
         ctx.cleanup()
 

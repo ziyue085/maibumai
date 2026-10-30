@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from evidence import SOURCE_TIERS
+import evidence as ev
 
 # ---------------------------------------------------------------------------
 # 规则码表
@@ -148,6 +148,7 @@ ALT_PROBLEM_ZH = {
     "ALT_PRICE_WEAK_SOURCE": "替代品的报价来自口述或社区，缺少可核验的公开报价",
     "ALT_PRICE_STALE": "替代品的报价已过期或没有日期，不能当作现价",
     "ALT_PRICE_CONTENT_MISMATCH": "替代品的报价与页面上看到的价格不一致，这条证据自相矛盾",
+    "ALT_PAGE_PRICE_INVALID": "替代品的页面价填了 0、负数或不是数字，等于没做过页面核对",
     "ALT_OVER_BUDGET": "替代方案同样超出你的承受能力，换过去并不能解决问题",
     "ALT_NEEDS_TIME": "替代方案同样需要跨月支出，换过去并不能解决问题",
     "ALT_BUDGET_UNKNOWN": "替代方案的预算状态无法确认，不能据此给出替换建议",
@@ -164,6 +165,7 @@ ALT_AUDIT_CODE = {
     "ALT_PRICE_WEAK_SOURCE": "AUD_ALT_UNVERIFIED_PRICE",
     "ALT_PRICE_STALE": "AUD_ALT_PRICE_STALE",
     "ALT_PRICE_CONTENT_MISMATCH": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_PAGE_PRICE_INVALID": "AUD_ALT_UNVERIFIED_PRICE",
     "ALT_OVER_BUDGET": "AUD_ALT_OVER_BUDGET",
     "ALT_NEEDS_TIME": "AUD_ALT_BUDGET_UNVERIFIED",
     "ALT_BUDGET_UNKNOWN": "AUD_ALT_BUDGET_UNVERIFIED",
@@ -488,7 +490,7 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
         )
 
     kinds = _evidence_kinds(evidence)
-    ev = evidence_result or {}
+    evr = evidence_result or {}
     price = product.get("price")
     # L1 是"30 块钱的东西不用查证"，不要求价格证据；否则快判通道形同虚设
     is_l1 = level == "L1" and bool(L1_EXEMPT_EVIDENCE)
@@ -507,16 +509,17 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
             if not price_items:
                 findings.append(_finding("AUD_NO_PRICE_EVIDENCE", "BLOCK", "购买类结论必须附价格证据"))
             else:
-                best_tier = min(SOURCE_TIERS.get(str(e.get("source_type") or ""), 5) for e in price_items)
+                best_tier = min(ev.SOURCE_TIERS.get(str(e.get("source_type") or ""), 5)
+                                for e in price_items)
                 if best_tier > 3:
                     findings.append(
                         _finding("AUD_PRICE_UNVERIFIED", "BLOCK",
                                  "价格只有用户口述或社区来源：不能据此断言「价格合理」，须先查到公开报价")
                     )
-            if ev and not ev.get("ok", True):
+            if evr and not evr.get("ok", True):
                 findings.append(
                     _finding("AUD_EVIDENCE_BLOCKING", "BLOCK",
-                             f"证据校验未通过（{ev.get('blocking', 0)} 项阻断）")
+                             f"证据校验未通过（{evr.get('blocking', 0)} 项阻断）")
                 )
 
     if isinstance(price, (int, float)) and price > 0 and "price" in kinds:
@@ -526,14 +529,20 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
             and str(e.get("subject") or "target").strip().lower() == "target"
             and isinstance(e.get("value"), (int, float)) and e.get("value") > 0
         ]
-        if ev_prices:
-            near = [p for p in ev_prices if abs(p - price) / price <= 0.05]
+        # 只用**最可信那一档**来源的价比对。否则一条社区报价就能把
+        # "输入价 vs 官方价"的冲突盖掉——600 凑近社区 599，官方 899 被无视。
+        # 没有可信来源时退回全部报价：那种情况另有 AUD_PRICE_UNVERIFIED 兜底。
+        credible = ev.credible_price_values(evidence, "target")
+        compare = credible or ev_prices
+        if compare:
+            near = [p for p in compare if abs(p - price) / price <= 0.05]
             if not near:
                 findings.append(
                     _finding(
                         "AUD_PRICE_MISMATCH", "BLOCK" if verdict in ("BUY", "SWITCH") else "WARN",
-                        f"商品价格 {price} 与证据价格 {ev_prices} 不一致（>5%），须说明口径",
-                        {"stated": price, "evidence": ev_prices},
+                        f"商品价格 {price} 与证据价格 {compare} 不一致（>5%），须说明口径",
+                        {"stated": price, "evidence": compare,
+                         "tier_used": "best" if credible else "any"},
                     )
                 )
 

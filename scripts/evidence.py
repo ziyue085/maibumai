@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import math
 from urllib.parse import urlparse
 
 SOURCE_TIERS = {
@@ -24,7 +25,9 @@ SOURCE_TIERS = {
 FX_REJECTION_ZH = {
     "FX_NO_PAIR": "没有写清是哪两个币种之间的汇率",
     "FX_SAME_PAIR": "两个币种相同，不需要汇率",
-    "FX_BAD_VALUE": "汇率数值不成立",
+    "FX_BAD_VALUE": "汇率数值不成立（不是正的有限数，或根本不是数字）",
+    "FX_BAD_CURRENCY": "币种不在可换算列表里",
+    "FX_OUT_OF_RANGE": "汇率数值超出合理区间，像是单位写错了",
     "FX_WEAK_SOURCE": "来源是口述或社区，不足以作为换算依据",
     "FX_NO_LINK": "没有可核验的链接",
     "FX_NO_DATE": "没有标注观测日期",
@@ -49,6 +52,15 @@ VALUE_KINDS = ("price", "promo", "price_history", "fx")
 SUPPORTED_CURRENCIES = ("CNY", "USD", "EUR", "JPY", "HKD", "GBP", "KRW", "TWD", "SGD")
 
 _PRICE_CONFLICT_RATIO = 0.15
+
+#: 同一等级来源互相差多少，就说明"至少有一个是错的"。
+#: 比跨等级冲突（15%）严：官方价与社区价不同是常态，**两个官方价不同是事故**。
+SAME_TIER_CONFLICT_TOLERANCE = 0.05
+
+#: 汇率的数量级边界。支持币种里最极端的真实交叉汇率（KRW/GBP ≈ 5.8e-4、
+#: GBP/KRW ≈ 1.7e3）离这两个界还有 5 倍以上余量。超出只可能是单位写错或数据造假。
+FX_MIN_RATE = 1e-4
+FX_MAX_RATE = 1e4
 
 
 def _finding(code, severity, message, detail=None):
@@ -88,8 +100,25 @@ def _url_syntax_ok(url: str) -> bool:
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 
-def _positive_number(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+def _positive_number(value) -> bool:
+    """是不是一个**能进算式的正数**。
+
+    三件事一起判，少一件就会让脏数据混进计算：
+
+    1. 是数字，且不是布尔——``True == 1``，「汇率=True」必须被挡住；
+    2. 大于 0；
+    3. **有限**——``float('inf') > 0`` 成立，`nan` 会让后续所有比较静默失效，
+       两者都能一路走到预算与比价里，所以必须在这里拦掉。
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if value <= 0:
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, ValueError):
+        # 超出 float 范围的巨型整数（如 10**400）：不算可用数字
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -107,10 +136,15 @@ def fx_rejection(item: dict, base: str, as_of=None) -> str | None:
     value = item.get("value")
     if not (src and dst):
         return "FX_NO_PAIR"
+    if src not in SUPPORTED_CURRENCIES or dst not in SUPPORTED_CURRENCIES:
+        # 先认币种再看数值：不在列表里的币种，数值再漂亮也不该进算式
+        return "FX_BAD_CURRENCY"
     if src == dst:
         return "FX_SAME_PAIR"
     if not _positive_number(value):
         return "FX_BAD_VALUE"
+    if not (FX_MIN_RATE <= float(value) <= FX_MAX_RATE):
+        return "FX_OUT_OF_RANGE"
     tier = SOURCE_TIERS.get(str(item.get("source_type") or ""), 5)
     if tier > 3:
         # 口述、社区、来源缺失：可以做线索，不能做乘数
@@ -131,9 +165,13 @@ def fx_rejection(item: dict, base: str, as_of=None) -> str | None:
 def fx_rates(items, base: str, as_of=None) -> dict:
     """从证据里读出**可用**的汇率。
 
-    汇率是时效性最强的数据，也是唯一直接乘进价格的数字。所以这里要过五关：
-    币种对完整、数值为正、来源等级 ≤ 3、有可核验链接、日期在 3 天保鲜期内。
-    任一关不过就跳过——换算失败会阻断，比用错汇率好。
+    汇率是时效性最强的数据，也是唯一直接乘进价格的数字。所以这里要过七关：
+    币种在支持列表里、币种对完整、数值为正且有限、数量级合理、来源等级 ≤ 3、
+    有可核验链接、日期在 3 天保鲜期内。任一关不过就跳过——换算失败会阻断，
+    比用错汇率好。
+
+    ⚠️ 这里是换算的**唯一入口**。`convert_amount` / `to_base` 都只认本函数
+    返回的汇率，不存在"先算出来、事后拦截"的路径。
     """
     base = (base or "CNY").upper()
     rates = {}
@@ -158,10 +196,17 @@ def convert_amount(value, currency, base, items, as_of=None):
         return float(value)
     rates = fx_rates(items, base, as_of)
     if (cur, base) in rates:
-        return round(float(value) * rates[(cur, base)], 2)
+        return _finite_or_none(float(value) * rates[(cur, base)])
     if (base, cur) in rates and rates[(base, cur)] > 0:
-        return round(float(value) / rates[(base, cur)], 2)
+        return _finite_or_none(float(value) / rates[(base, cur)])
     return None
+
+
+def _finite_or_none(number) -> float | None:
+    """换算出非有限数（溢出到 inf、算出 nan）等于没换算出来。"""
+    if not math.isfinite(number):
+        return None
+    return round(number, 2)
 
 
 def to_base(items, base="CNY", product=None, as_of=None):
@@ -246,21 +291,92 @@ valid_url = url_syntax_ok
 
 
 def quote_content_problem(item: dict, tolerance: float = 0.02) -> str | None:
-    """报价与"页面上看到的价格"是否对得上。
+    """``page_price`` 这一格填得对不对。没问题返回 None，否则返回问题码。
 
-    ``page_price`` 是取证方（模型）读完页面后填的**原样价格**。本函数只做减法：
-    两者差超过 2% 就说明这条证据自相矛盾——比如 claim 写 599、页面价填 899。
+    两种问题，必须分开：
 
-    ⚠️ 它**不能**证明模型真的读了那个页面，也**不能**证明域名是官方渠道。
-    这两件事本仓库做不到，别把这里的检查当成"内容已核实"。
+    | 码 | 含义 |
+    |---|---|
+    | ``PAGE_PRICE_INVALID`` | 填了，但填的是 0、负数、布尔、非数字、``nan``/``inf``——**不成立** |
+    | ``QUOTE_CONTENT_MISMATCH`` | 填了正数，但与引用价差超过 2%——**自相矛盾** |
+
+    两者都不能拿到 ``page`` 级核验标记。以前只判第二种：``page_price=0``
+    或 ``page_price=True``（布尔是 int 的子类）会被当成"没填"直接放过，
+    于是"填了个假页面价"反而能换来"页面核对过"的标记。
+
+    ⚠️ 它**不能**证明模型真的读了那个页面，也**不能**证明域名是官方渠道，
+    更不能证明这个数字来自页面正文（而不是随手编的）。这三件事本仓库做不到，
+    别把这里的检查当成"内容已核实"。
     """
-    page = item.get("page_price")
-    value = item.get("value")
-    if not (_positive_number(page) and _positive_number(value)):
+    if "page_price" not in item:
         return None
+    page = item.get("page_price")
+    if page is None:
+        return None  # 显式留空 = 没填，按"没读过页面"处理
+    if not _positive_number(page):
+        return "PAGE_PRICE_INVALID"
+    value = item.get("value")
+    if not _positive_number(value):
+        return None  # 引用价本身不成立时由别处报，这里不重复
     if abs(float(page) - float(value)) / float(value) > tolerance:
         return "QUOTE_CONTENT_MISMATCH"
     return None
+
+
+#: 页面价这一格的状态。给调用方一个比"是不是 None"更可读的答案。
+def page_price_ok(item: dict, tolerance: float = 0.02) -> bool:
+    """这条报价是否配得上 ``page`` 级标记：填了、是正数、且与引用价一致。
+
+    留空（没有这个键，或显式填 null）只算"没读过页面"，不算核对过。
+    """
+    if not isinstance(item, dict) or item.get("page_price") is None:
+        return False
+    return quote_content_problem(item, tolerance) is None
+
+
+def tier_conflict(values, tolerance: float = SAME_TIER_CONFLICT_TOLERANCE) -> bool:
+    """同一等级来源给出的价，互相差到"至少有一个是错的"。
+
+    跨等级冲突是常态（官方价与社区价不同很正常，报 WARN 提醒说明差异即可）；
+    **同等级冲突是事故**——两个官方来源报出不同的价，谁都不能被采信，
+    取平均、取最新、取便宜的那个都是在替用户挑。
+    """
+    nums = [float(v) for v in values or [] if _positive_number(v)]
+    if len(nums) < 2:
+        return False
+    low = min(nums)
+    return (max(nums) - low) / low > tolerance
+
+
+def credible_price_values(items, subject="target", max_tier=3) -> list:
+    """某一主体下**最可信那一档**来源给出的价格集合。
+
+    低可信报价不能用来"凑近"输入价：官方 899 与社区 599 并存时只有 899 算数，
+    否则拿 599 一凑，输入价 600 就"对得上"了——**冲突被低可信来源掩盖**。
+
+    - 只认价格类证据、只认正数且有限的值；
+    - 取等级最高的那一档（数值最小 = 最可信）；
+    - 那一档超过 ``max_tier``（口述/社区）时返回空列表：**没有可信报价**，
+      而不是"有一条报价"。
+    """
+    points = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("kind") not in PRICE_KINDS:
+            continue
+        if str(item.get("subject") or "target").strip().lower() != subject:
+            continue
+        value = item.get("value")
+        if not _positive_number(value):
+            continue
+        points.append((SOURCE_TIERS.get(str(item.get("source_type") or ""), 5), float(value)))
+    if not points:
+        return []
+    best = min(tier for tier, _ in points)
+    if best > max_tier:
+        return []
+    return [value for tier, value in points if tier == best]
 
 
 def item_freshness(kind, observed_at, as_of=None, price_class="durable"):
@@ -408,7 +524,16 @@ def check(items, as_of=None, price_class="durable", required_kinds=("price",), b
                 )
 
         content_problem = quote_content_problem(item)
-        if content_problem:
+        if content_problem == "PAGE_PRICE_INVALID":
+            findings.append(
+                _finding(
+                    "EV_PAGE_PRICE_INVALID", "BLOCK",
+                    f"页面价 {item.get('page_price')!r} 不是正数：这一格要么别填，"
+                    "要么填页面上真实出现的价格",
+                    {**scope, "page_price": item.get("page_price")},
+                )
+            )
+        elif content_problem == "QUOTE_CONTENT_MISMATCH":
             findings.append(
                 _finding(
                     "EV_QUOTE_CONTENT_MISMATCH", "BLOCK",
@@ -464,6 +589,26 @@ def check(items, as_of=None, price_class="durable", required_kinds=("price",), b
                     {"subject": subject, "values": values},
                 )
             )
+        # 同等级来源互相打架：跨等级差异只是"说明差异"，同级差异是谁都不成立。
+        # 只对 target 判：reference 本来就是"行情区间"（国产同类 1280 和 1100
+        # 不同很正常），要求它们一致没有意义。
+        if subject != "target":
+            continue
+        top_tier = min((p["tier"] for p in points), default=None)
+        if top_tier is not None:
+            same_tier = [p["value"] for p in points
+                         if p["tier"] == top_tier and p["value"] > 0]
+            if tier_conflict(same_tier):
+                findings.append(
+                    _finding(
+                        "EV_PRICE_CONFLICT", "WARN",
+                        f"同一等级来源（tier {top_tier}）给出的价 "
+                        f"{sorted(same_tier)} 相差超过 "
+                        f"{int(SAME_TIER_CONFLICT_TOLERANCE*100)}%：至少有一个是错的，"
+                        "不得取平均、取最新或取便宜的那个，须回到来源核对",
+                        {"subject": subject, "tier": top_tier, "values": sorted(same_tier)},
+                    )
+                )
 
     return _pack(findings)
 

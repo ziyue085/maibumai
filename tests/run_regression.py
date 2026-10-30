@@ -259,9 +259,10 @@ def run_pipeline():
             if got_alt != sorted(want_alt):
                 problems.append(f"替代品问题 {got_alt} 期望 {sorted(want_alt)}")
         want_verified = c.get("expect_alt_verified")
-        if want_verified is not None:
+        if "expect_alt_verified" in c:
+            # 显式写 null 也是断言：替代品**不该**拿到任何核验等级
             got_verified = (result["numbers"].get("alternative") or {}).get("price_verified")
-            if got_verified != want_verified:
+            if got_verified != c.get("expect_alt_verified"):
                 problems.append(f"替代品核实等级 {got_verified!r} 期望 {want_verified!r}")
         want_alt_price = c.get("expect_alt_price")
         if want_alt_price is not None:
@@ -282,6 +283,116 @@ def run_pipeline():
             if got != want:
                 problems.append(f"gate.{key}.ok={got} 期望 {want}")
         out.append(_res("pipeline", c["id"], c["name"], not problems, "；".join(problems)))
+    return out
+
+
+def run_fxguard():
+    """汇率进入计算之前的七道关。
+
+    ``nan`` / ``inf`` / ``10**400`` 这些值写不进 JSON（不是合法的 JSON 数字），
+    所以在 Python 里直接构造——正好也覆盖"调用方传进来一个脏 dict"这条真实路径：
+    模型从网页上解析出 ``Infinity`` 是完全可能发生的。
+
+    要守的只有一条：**不许它们在换算之前溜过去**。先算出来、再拦下来是没用的——
+    一个 1e7 的价格已经进了预算、等级和结论。
+    """
+    out = []
+
+    def check(cid, name, cond, detail=""):
+        out.append(_res("fxguard", cid, name, bool(cond), "" if cond else str(detail)))
+
+    def fx(value, base="USD", quote="CNY"):
+        return {"kind": "fx", "claim": f"{base}/{quote}", "value": value,
+                "base": base, "quote": quote, "source_type": "official",
+                "url": "https://example.com/fx", "observed_at": "2026-10-28"}
+
+    def rej(item):
+        return evidence.fx_rejection(item, "CNY", FIXTURE_TODAY)
+
+    inf, nan = float("inf"), float("nan")
+
+    check("F1", "NaN 汇率被拒", rej(fx(nan)) == "FX_BAD_VALUE", rej(fx(nan)))
+    check("F2", "Infinity 汇率被拒", rej(fx(inf)) == "FX_BAD_VALUE", rej(fx(inf)))
+    check("F3", "-Infinity 汇率被拒", rej(fx(-inf)) == "FX_BAD_VALUE", rej(fx(-inf)))
+    check("F4", "极端汇率被拒（1e9 与 1e-9）",
+          rej(fx(1e9)) == "FX_OUT_OF_RANGE" and rej(fx(1e-9)) == "FX_OUT_OF_RANGE",
+          f"{rej(fx(1e9))} / {rej(fx(1e-9))}")
+    check("F5", "布尔汇率被拒（True 会被当成 1）",
+          rej(fx(True)) == "FX_BAD_VALUE", rej(fx(True)))
+    check("F6", "非法币种被拒（BTC/CNY）",
+          rej(fx(2000, "BTC", "CNY")) == "FX_BAD_CURRENCY", rej(fx(2000, "BTC", "CNY")))
+    try:
+        huge = rej(fx(10 ** 400))
+    except Exception as exc:  # noqa: BLE001
+        huge = f"抛异常：{exc!r}"
+    check("F7", "超大整数汇率被拒且不崩（10**400）", huge == "FX_BAD_VALUE", huge)
+
+    dirty = [fx(nan), fx(inf), fx(-inf), fx(1e9), fx(1e-9), fx(True),
+             fx(2000, "BTC", "CNY"), fx(10 ** 400)]
+    check("F8", "被拒的汇率一条都不进 fx_rates",
+          evidence.fx_rates(dirty, "CNY", FIXTURE_TODAY) == {},
+          evidence.fx_rates(dirty, "CNY", FIXTURE_TODAY))
+    check("F9", "脏汇率下换算直接失败，不产出数字",
+          evidence.convert_amount(100, "USD", "CNY", dirty, FIXTURE_TODAY) is None,
+          evidence.convert_amount(100, "USD", "CNY", dirty, FIXTURE_TODAY))
+    check("F10", "合法汇率照常换算（正向对照）",
+          evidence.convert_amount(100, "USD", "CNY", [fx(7.2)], FIXTURE_TODAY) == 720.0,
+          evidence.convert_amount(100, "USD", "CNY", [fx(7.2)], FIXTURE_TODAY))
+
+    bad_price = {"kind": "price", "claim": "页面上写着 Infinity", "value": inf,
+                 "source_type": "official", "url": "https://example.com/a",
+                 "observed_at": "2026-10-28"}
+    res = evidence.check([bad_price], as_of=FIXTURE_TODAY, required_kinds=("price",))
+    codes = {f["code"] for f in res["findings"]}
+    check("F11", "非有限的商品价同样是数据不成立",
+          "EV_PRICE_VALUE_INVALID" in codes and not res["ok"],
+          f"{sorted(codes)} ok={res['ok']}")
+    return out
+
+
+def run_pageguard():
+    """``page_price`` 这一格：什么才算"页面核对过"。
+
+    0、负数、布尔、``nan``、``inf`` 都不是价格。旧逻辑只对"正数且不一致"报错，
+    非正数一律当成"没填"——于是**填一个假页面价反而能换来 page 级标记**，
+    比老实留空还占便宜。这个漏洞的方向是反的。
+    """
+    out = []
+
+    def check(cid, name, cond, detail=""):
+        out.append(_res("pageguard", cid, name, bool(cond), "" if cond else str(detail)))
+
+    def item(page, value=899):
+        e = {"kind": "price", "claim": "官网 899", "value": value,
+             "source_type": "official", "url": "https://example.com/a",
+             "observed_at": "2026-10-28"}
+        if page is not ...:
+            e["page_price"] = page
+        return e
+
+    inf, nan = float("inf"), float("nan")
+    invalid = [("0", 0), ("负数", -100), ("布尔", True), ("NaN", nan), ("Infinity", inf)]
+    for i, (label, value) in enumerate(invalid, start=1):
+        got = evidence.quote_content_problem(item(value))
+        check(f"G{i}", f"页面价为{label}：判不成立，且不算 page 级",
+              got == "PAGE_PRICE_INVALID" and not evidence.page_price_ok(item(value)),
+              got)
+    check("G6", "页面价与引用价一致：判成立（正向对照）",
+          evidence.quote_content_problem(item(899)) is None
+          and evidence.page_price_ok(item(899)),
+          evidence.quote_content_problem(item(899)))
+    check("G7", "页面价与引用价差 3%：判自相矛盾",
+          evidence.quote_content_problem(item(925)) == "QUOTE_CONTENT_MISMATCH"
+          and not evidence.page_price_ok(item(925)),
+          evidence.quote_content_problem(item(925)))
+    check("G8", "没填页面价：不算 page 级，也不报错",
+          evidence.quote_content_problem(item(...)) is None
+          and not evidence.page_price_ok(item(...)),
+          evidence.quote_content_problem(item(...)))
+    check("G9", "显式填 null 等同没填",
+          evidence.quote_content_problem(item(None)) is None
+          and not evidence.page_price_ok(item(None)),
+          evidence.quote_content_problem(item(None)))
     return out
 
 
@@ -598,6 +709,44 @@ def run_realquote():
           and alt3.get("price_verified") == "source",
           {"verdict": res3["verdict"]["verdict"],
            "verified": alt3.get("price_verified")})
+
+    # --- Q4/Q5 把这套检查的**证明边界**钉住，别让它被当成"内容已核实"
+    #
+    # body_sha256 能证明的只有一件事：这个 URL 在 fetched_at 那一刻返回的正文，
+    # 哈希是这个值、正文里出现过 claim_price 这个数字。
+    # 它证明不了：域名是否官方、现在还是不是这个价、取证方是否真读了页面。
+    # 下面两条把"能抓到的"和"抓不到的"分别固化成断言。
+
+    # Q4 抓不到的：page_price 是不是**真的**来自那个页面。
+    # 这里故意用一个页面上没有的数字，系统照样会判"页面核对过"——这是已知限制。
+    ghost = round(float(claim) * 3 + 0.01, 2)
+    on_page = any(abs(float(p["amount"]) - ghost) < 0.005
+                  and p.get("currency") == record.get("currency") for p in prices)
+    res4 = mbm._evaluate(draft(ghost, page_price=ghost), profile)
+    alt4 = res4["numbers"].get("alternative") or {}
+    check("Q4", "已知限制：页面价无法自证来自页面（sha256 也管不了这一条）",
+          (not on_page)
+          and res4["verdict"]["verdict"] == "SWITCH"
+          and alt4.get("price_verified") == "page",
+          {"ghost": ghost, "on_page": on_page,
+           "verdict": res4["verdict"]["verdict"], "verified": alt4.get("price_verified")})
+
+    # Q5 抓得到的：引用价与"页面上确实有、但不是这一个"的价格不符时会被抓出来。
+    others = sorted({round(float(p["amount"]), 2) for p in prices
+                     if p.get("currency") == record.get("currency")
+                     and float(p["amount"]) > 0
+                     and abs(float(p["amount"]) - float(claim)) > 0.005})
+    if not others:
+        check("Q5", "页面上有其他价格可用于对照", False, f"记录里只有 {prices}")
+    else:
+        other = others[-1]
+        res5 = mbm._evaluate(draft(claim, page_price=other), profile)
+        alt5 = res5["numbers"].get("alternative") or {}
+        check("Q5", "引用价与页面上真实存在的另一个价格不符时被拦下",
+              res5["verdict"]["verdict"] == "DEFER"
+              and "ALT_PRICE_CONTENT_MISMATCH" in (alt5.get("problems") or []),
+              {"other": other, "verdict": res5["verdict"]["verdict"],
+               "problems": alt5.get("problems")})
     return out
 
 
@@ -609,6 +758,8 @@ SUITES = {
     "pipeline": run_pipeline,
     "ledger": run_ledger,
     "profile": run_profile,
+    "fxguard": run_fxguard,
+    "pageguard": run_pageguard,
     "realquote": run_realquote,
 }
 

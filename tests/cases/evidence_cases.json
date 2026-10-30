@@ -386,6 +386,203 @@
       ],
       "expect_ok": true,
       "why": "汇率过期既是「不能用」也是「超期」：两条都报，用户才知道为什么换不出来。"
+    },
+    {
+      "id": "E18",
+      "name": "汇率数量级离谱（USD/CNY = 100000）",
+      "items": [
+        {
+          "kind": "fx",
+          "claim": "USD/CNY 100000",
+          "value": 100000,
+          "base": "USD",
+          "quote": "CNY",
+          "source_type": "official",
+          "url": "https://example.com/fx",
+          "observed_at": "2026-10-28"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": []
+      },
+      "expect": [
+        "EV_FX_UNTRUSTED"
+      ],
+      "expect_ok": true,
+      "why": "支持币种里最极端的真实交叉汇率离 1e4 还有 5 倍以上余量；100000 只可能是单位写错。旧代码只查正数，它会被直接乘进价格。"
+    },
+    {
+      "id": "E19",
+      "name": "币种不在可换算列表里（BTC/CNY）",
+      "items": [
+        {
+          "kind": "fx",
+          "claim": "BTC/CNY 2000",
+          "value": 2000,
+          "base": "BTC",
+          "quote": "CNY",
+          "source_type": "official",
+          "url": "https://example.com/fx",
+          "observed_at": "2026-10-28"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": []
+      },
+      "expect": [
+        "EV_FX_INVALID",
+        "EV_FX_UNTRUSTED"
+      ],
+      "expect_ok": false,
+      "why": "check() 早就报 EV_FX_INVALID，但那只是『报了个错』；fx_rejection 不拒，换算照样发生。现在两处口径一致。"
+    },
+    {
+      "id": "E20",
+      "name": "两个官方来源互相打架",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/a",
+          "observed_at": "2026-10-28"
+        },
+        {
+          "kind": "price",
+          "claim": "1099",
+          "value": 1099,
+          "source_type": "official",
+          "url": "https://example.com/b",
+          "observed_at": "2026-10-28"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_CONFLICT",
+        "EV_PRICE_CONFLICT"
+      ],
+      "expect_ok": true,
+      "why": "跨等级差异报 EV_CONFLICT（说明差异即可）；同等级互相打架另报 EV_PRICE_CONFLICT——取平均、取最新、取便宜的都是在替用户挑。"
+    },
+    {
+      "id": "E21",
+      "name": "官方价与社区价不同：只是警告，不算同级冲突",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/a",
+          "observed_at": "2026-10-28"
+        },
+        {
+          "kind": "price",
+          "claim": "599",
+          "value": 599,
+          "source_type": "ugc",
+          "url": "https://example.com/b",
+          "observed_at": "2026-10-28"
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_CONFLICT",
+        "EV_UGC_PRICE"
+      ],
+      "expect_ok": true,
+      "why": "反向对照：低可信报价与官方价不同是常态。同等级冲突的口径更严，但不会把『官方 vs 社区』误判成无解冲突。"
+    },
+    {
+      "id": "E22",
+      "name": "页面价填 0：不是没填，是不成立",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/a",
+          "observed_at": "2026-10-28",
+          "page_price": 0
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_PAGE_PRICE_INVALID"
+      ],
+      "expect_ok": false,
+      "why": "0 不是价格。旧代码对非正数直接返回 None，0 被当成『没填』放过，反而能换来 page 级标记。"
+    },
+    {
+      "id": "E23",
+      "name": "页面价填布尔值 true",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/a",
+          "observed_at": "2026-10-28",
+          "page_price": true
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_PAGE_PRICE_INVALID"
+      ],
+      "expect_ok": false,
+      "why": "布尔是 int 的子类，isinstance(True, (int, float)) 为真：旧代码会把它当成『填了页面价 1 元』。"
+    },
+    {
+      "id": "E24",
+      "name": "页面价填负数",
+      "items": [
+        {
+          "kind": "price",
+          "claim": "899",
+          "value": 899,
+          "source_type": "official",
+          "url": "https://example.com/a",
+          "observed_at": "2026-10-28",
+          "page_price": -100
+        }
+      ],
+      "args": {
+        "as_of": "2026-10-29",
+        "required_kinds": [
+          "price"
+        ]
+      },
+      "expect": [
+        "EV_PAGE_PRICE_INVALID"
+      ],
+      "expect_ok": false,
+      "why": "负数价格不成立；同样不能拿到 page 级标记。"
     }
   ]
 }

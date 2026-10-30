@@ -150,7 +150,15 @@ ALT_PROBLEM_ZH = {
     "ALT_PRICE_CONTENT_MISMATCH": "替代品的报价与页面上看到的价格不一致，这条证据自相矛盾",
     "ALT_PAGE_PRICE_INVALID": "替代品的页面价填了 0、负数或不是数字，等于没做过页面核对",
     "ALT_PAGE_TEXT_HASH_MISMATCH": "替代品提供的页面正文与声明的哈希对不上，不能当页面证据",
+    "ALT_PAGE_TEXT_HASH_UNVERIFIABLE": "替代品声明了正文哈希却没给正文，引擎无从重算",
+    "ALT_PAGE_TEXT_HASH_REQUIRED": "替代品要求哈希核验但没有提供哈希",
     "ALT_PAGE_TEXT_NO_QUOTE": "替代品声称的页面价在提供的页面内容里找不到",
+    "ALT_PAGE_TEXT_NOT_A_PRICE": "替代品引用的数字在正文里只是型号/容量/销量，不是价格",
+    "ALT_PAGE_TEXT_PRICE_AMBIGUOUS": "替代品正文里该数字的价格用法与普通用法混在一起，分不出来",
+    "ALT_IDENTITY_AMBIGUOUS": "替代品的报价并列多个规格/地区/型号，没说清换的是哪一个",
+    "ALT_PRICE_CONFLICT": "替代品的可信报价互相打架（同等级同口径差 5% 以上），不能挑一个用",
+    "ALT_PRICE_BASIS_AMBIGUOUS": "替代品并列存在多个到手价口径，分不出该拿哪个比",
+    "ALT_PRICE_MISMATCH": "你填的替代品价格与可信报价对不上",
     "ALT_OVER_BUDGET": "替代方案同样超出你的承受能力，换过去并不能解决问题",
     "ALT_NEEDS_TIME": "替代方案同样需要跨月支出，换过去并不能解决问题",
     "ALT_BUDGET_UNKNOWN": "替代方案的预算状态无法确认，不能据此给出替换建议",
@@ -170,6 +178,14 @@ ALT_AUDIT_CODE = {
     "ALT_PAGE_PRICE_INVALID": "AUD_ALT_UNVERIFIED_PRICE",
     "ALT_PAGE_TEXT_HASH_MISMATCH": "AUD_ALT_UNVERIFIED_PRICE",
     "ALT_PAGE_TEXT_NO_QUOTE": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_PAGE_TEXT_HASH_UNVERIFIABLE": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_PAGE_TEXT_HASH_REQUIRED": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_PAGE_TEXT_NOT_A_PRICE": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_PAGE_TEXT_PRICE_AMBIGUOUS": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_IDENTITY_AMBIGUOUS": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_PRICE_CONFLICT": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_PRICE_BASIS_AMBIGUOUS": "AUD_ALT_UNVERIFIED_PRICE",
+    "ALT_PRICE_MISMATCH": "AUD_ALT_UNVERIFIED_PRICE",
     "ALT_OVER_BUDGET": "AUD_ALT_OVER_BUDGET",
     "ALT_NEEDS_TIME": "AUD_ALT_BUDGET_UNVERIFIED",
     "ALT_BUDGET_UNKNOWN": "AUD_ALT_BUDGET_UNVERIFIED",
@@ -538,7 +554,10 @@ def audit(decision, evidence_result=None, computed_level=None, enforced_codes=()
         # （600 凑近社区 599，官方 899 被无视）；官方标价 1099 与促销 899 并存时，
         # 拿标价去卡输入价 899 又会报一个假的"不一致"。
         credible = ev.credible_price_values(evidence, "target")
-        settle, _amb = ev.settlement_basis_values(evidence, "target")
+        # 与引擎判定用同一把尺：身份没定下来时不比价——比了只会报一个假的"不一致"
+        settle, ambiguity = ev.settlement_basis_values(evidence, "target")
+        if ambiguity in ("IDENTITY_AMBIGUOUS", "BASIS_AMBIGUOUS"):
+            settle = []
         compare = settle or credible or ev_prices
         if compare:
             near = [p for p in compare if abs(p - price) / price <= 0.05]

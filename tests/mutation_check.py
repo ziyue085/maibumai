@@ -306,14 +306,17 @@ def _m35():
 
 @mutation("替代品报价只比数值，不查来源与时效")
 def _m36():
-    def loose(items, converted, as_of, price_class):
+    def loose(items, converted, as_of, price_class, requested=None):
         for e in items or []:
             if (isinstance(e, dict) and e.get("kind") in ("price", "promo")
                     and str(e.get("subject") or "").lower() == "alternative"
                     and isinstance(e.get("value"), (int, float))
                     and abs(e["value"] - converted) / converted <= 0.05):
-                return {"problem": None, "verified": "source"}
-        return {"problem": "ALT_PRICE_UNVERIFIED", "verified": None}
+                return {"problem": None, "problems": [], "verified": "source",
+                        "status": "OK", "settlement_price": e["value"], "assessment": {}}
+        return {"problem": "ALT_PRICE_UNVERIFIED",
+                "problems": ["ALT_PRICE_UNVERIFIED"], "verified": None,
+                "status": "NO_EVIDENCE", "settlement_price": None, "assessment": {}}
     return _set(mbm, "_alt_price_check", loose)
 
 
@@ -434,17 +437,20 @@ def _m50():
     官方 1200 + 社区 899 时，用户说 900 就会"和 899 对上了"——官方价与输入价
     的冲突被一条不可信的报价盖掉，结论从暂缓变成建议购买。
     """
-    def loose(items, subject="target", max_tier=3):
-        groups = evidence.price_basis_groups(items, subject, 5)
+    def loose(items, subject="target", max_tier=3, requested=None):
+        groups = evidence.price_basis_groups(items, subject, 5, requested)
         if not groups:
             return [], "NO_CREDIBLE"
+        if len({k[:3] for k in groups}) > 1:
+            return [], "IDENTITY_AMBIGUOUS"
         ranked = sorted(groups.items(),
-                        key=lambda kv: evidence.PRICE_BASIS_PRIORITY.get(kv[0][0], 5))
-        top = evidence.PRICE_BASIS_PRIORITY.get(ranked[0][0][0], 5)
+                        key=lambda kv: evidence.PRICE_BASIS_PRIORITY.get(kv[0][3], 5))
+        top = evidence.PRICE_BASIS_PRIORITY.get(ranked[0][0][3], 5)
         tied = [kv for kv in ranked
-                if evidence.PRICE_BASIS_PRIORITY.get(kv[0][0], 5) == top]
+                if evidence.PRICE_BASIS_PRIORITY.get(kv[0][3], 5) == top]
         if len(tied) > 1:
-            return [], "AMBIGUOUS"
+            return [], "BASIS_AMBIGUOUS"
+        # 不挑等级：口述/社区报价也一起进了到手价那一组
         return [v for _, v in tied[0][1]], None
     return _set(evidence, "settlement_basis_values", loose)
 
@@ -505,7 +511,9 @@ def _m57():
 @mutation("报价分组忽略规格与地区（不同规格也被当成同一把尺）")
 def _m58():
     def loose(item):
-        return (evidence._norm_basis(item), "", "")
+        # 只保留型号与口径：规格、地区都不参与分组
+        return (evidence._norm_identity(item.get("model") or ""), "", "",
+                evidence._norm_basis(item))
     return _set(evidence, "price_comparison_key", loose)
 
 
@@ -520,10 +528,10 @@ def _m59():
 def _m60():
     orig = evidence.settlement_basis_values
 
-    def loose(items, subject="target", max_tier=3):
-        values, ambiguity = orig(items, subject, max_tier)
-        if ambiguity == "AMBIGUOUS":
-            groups = evidence.price_basis_groups(items, subject, max_tier)
+    def loose(items, subject="target", max_tier=3, requested=None):
+        values, ambiguity = orig(items, subject, max_tier, requested)
+        if ambiguity in ("BASIS_AMBIGUOUS", "IDENTITY_AMBIGUOUS"):
+            groups = evidence.price_basis_groups(items, subject, max_tier, requested)
             first = next(iter(groups.values()))
             return [v for _, v in first], None
         return values, ambiguity
@@ -553,13 +561,13 @@ def _m62():
 def _m52():
     orig = mbm._alt_price_check
 
-    def loose(items, converted, as_of, price_class):
-        out = orig(items, converted, as_of, price_class)
-        if out.get("verified") is None and any(
+    def loose(items, converted, as_of, price_class, requested=None):
+        out = orig(items, converted, as_of, price_class, requested)
+        if not out.get("verified") and any(
             isinstance(e, dict) and e.get("page_price") is not None for e in (items or [])
         ):
-            out["problem"] = None
-            out["verified"] = "page"
+            out["problems"] = []
+            out["verified"] = "content"
         return out
     return _set(mbm, "_alt_price_check", loose)
 
@@ -580,7 +588,7 @@ def _m46():
 
     def always_page(*args, **kwargs):
         out = orig(*args, **kwargs)
-        if out.get("problem") is None:
+        if not out.get("problems"):
             out["verified"] = "page"
         return out
     return _set(mbm, "_alt_price_check", always_page)
@@ -600,6 +608,218 @@ def _m47():
                 rates[(src, dst)] = float(value)
         return rates
     return _set(evidence, "fx_rates", loose)
+
+
+# --- 第九轮：证据链、商品身份、替代品同标、汇率锚点与方向 ------------------
+
+
+@mutation("只给页面价格集合也算页面核验过")
+def _m63():
+    """取证方列的一串数字被当成独立证据——等于让他给自己出证明。"""
+    orig = evidence.page_quote_check
+
+    def loose(item, tolerance=0.02):
+        out = orig(item, tolerance)
+        price_set = item.get("page_price_set") if isinstance(item, dict) else None
+        if (out["level"] == "reported" and isinstance(price_set, (list, tuple))
+                and evidence._price_appears(item.get("page_price"), price_set, tolerance)):
+            out["level"] = "content"
+            out["problem"] = None
+        return out
+    return _set(evidence, "page_quote_check", loose)
+
+
+@mutation("页面数字不辨语义（型号/容量/销量也当价格）")
+def _m64():
+    return _set(evidence, "classify_number", lambda text, start, end: "price")
+
+
+@mutation("分不出哪个数字才是价格时也放行")
+def _m65():
+    orig = evidence.page_price_lookup
+
+    def loose(value, text, tolerance=0.02):
+        out = orig(value, text, tolerance)
+        if out["status"] == "ambiguous":
+            out["status"] = "matched"
+        return out
+    return _set(evidence, "page_price_lookup", loose)
+
+
+@mutation("正文里只是型号/容量的数字也当作价格")
+def _m66():
+    orig = evidence.page_price_lookup
+
+    def loose(value, text, tolerance=0.02):
+        out = orig(value, text, tolerance)
+        if out["status"] == "not_a_price":
+            out["status"] = "matched"
+        return out
+    return _set(evidence, "page_price_lookup", loose)
+
+
+@mutation("规格并列时不提示歧义，直接按口径优先级挑一个（等于替用户选最便宜规格）")
+def _m67():
+    orig = evidence.settlement_basis_values
+
+    def loose(items, subject="target", max_tier=3, requested=None):
+        values, ambiguity = orig(items, subject, max_tier, requested)
+        if ambiguity == "IDENTITY_AMBIGUOUS":
+            groups = evidence.price_basis_groups(items, subject, max_tier, requested)
+            ranked = sorted(groups.items(),
+                            key=lambda kv: evidence.PRICE_BASIS_PRIORITY.get(kv[0][3], 5))
+            return [v for _, v in ranked[0][1]], None
+        return values, ambiguity
+    return _set(evidence, "settlement_basis_values", loose)
+
+
+@mutation("替代品先按输入价 ±5% 过滤证据再审核（官方冲突报价被筛掉）")
+def _m68():
+    orig = evidence.assess_quotations
+
+    def loose(items, subject="target", as_of=None, price_class="durable",
+              max_tier=3, requested=None, stated_price=None, mismatch_tolerance=0.05):
+        if subject == "alternative" and evidence._positive_number(stated_price):
+            kept = []
+            for e in items or []:
+                if (isinstance(e, dict) and e.get("kind") in evidence.PRICE_KINDS
+                        and str(e.get("subject") or "target").lower() == "alternative"
+                        and evidence._positive_number(e.get("value"))
+                        and abs(float(e["value"]) - float(stated_price))
+                        / float(stated_price) > 0.05):
+                    continue
+                kept.append(e)
+            items = kept
+        return orig(items, subject, as_of=as_of, price_class=price_class,
+                    max_tier=max_tier, requested=requested,
+                    stated_price=stated_price, mismatch_tolerance=mismatch_tolerance)
+    return _set(evidence, "assess_quotations", loose)
+
+
+@mutation("缺锚点的汇率当合理放行")
+def _m69():
+    orig = evidence.fx_plausibility
+
+    def loose(item, as_of=None):
+        out = orig(item, as_of)
+        if out["why"] == "FX_NO_ANCHOR":
+            out["ok"] = True
+            out["why"] = None
+        return out
+    return _set(evidence, "fx_plausibility", loose)
+
+
+@mutation("同一币种对多条汇率时静默取最后一条")
+def _m70():
+    orig = evidence.fx_rate_table
+
+    def loose(items, base, as_of=None):
+        table = orig(items, base, as_of)
+        if table["conflicts"]:
+            conflicted = {c["pair"] for c in table["conflicts"]}
+            for item in items or []:
+                if not isinstance(item, dict) or item.get("kind") != "fx":
+                    continue
+                pair = evidence._fx_pair(item)
+                if pair in conflicted and evidence._positive_number(item.get("value")):
+                    table["rates"][pair] = float(item["value"])
+            table["conflicts"] = []
+        return table
+    return _set(evidence, "fx_rate_table", loose)
+
+
+@mutation("与基准币种连不上的汇率也进换算表")
+def _m71():
+    return _set(evidence, "pair_reaches_base",
+                lambda pair, base, pairs, max_depth=2: True)
+
+
+@mutation("低可信证据的问题也按阻断处理（可以否决高可信报价）")
+def _m72():
+    return _set(evidence, "_severity_for",
+                lambda code, tier, default="BLOCK": default)
+
+
+@mutation("交叉汇率不限深度（拿一串不相干的汇率硬凑）")
+def _m73():
+    """链越长误差越叠，所以只允许借一个中间币种。这里放开到任意长度。"""
+    # 自己实现一份"随便借几个中间币种都行"的推导：
+    # 不能直接包一层 orig(..., 4)——orig 内部的递归会重新拿到被打过补丁的函数，
+    # 于是深度永远不减，直接爆栈。变异要复现的是**错误行为**，不是崩溃。
+    def loose(currency, base, rates, max_depth=evidence.FX_CROSS_DEPTH):
+        cur = (currency or base).upper()
+        dst = (base or "CNY").upper()
+        if cur == dst:
+            return 1.0, []
+        if (cur, dst) in rates:
+            return rates[(cur, dst)], [f"{cur}/{dst}"]
+        if (dst, cur) in rates and rates[(dst, cur)] > 0:
+            return 1.0 / rates[(dst, cur)], [f"{dst}/{cur}(反向)"]
+
+        def walk(node, depth_left, seen):
+            if node == dst:
+                return 1.0, []
+            if depth_left < 1:
+                return None, None
+            for (a, b), value in rates.items():
+                if not value or value <= 0:
+                    continue
+                if a == node and b not in seen:
+                    rest, chain = walk(b, depth_left - 1, seen | {node})
+                    if rest:
+                        return value * rest, [f"{a}/{b}"] + chain
+                if b == node and a not in seen:
+                    rest, chain = walk(a, depth_left - 1, seen | {node})
+                    if rest:
+                        return (1.0 / value) * rest, [f"{a}/{b}(反向)"] + chain
+            return None, None
+
+        return walk(cur, 4, {cur})
+
+    apply_r, restore_r = _set(evidence, "conversion_rate", loose)
+    apply_p, restore_p = _set(evidence, "pair_reaches_base",
+                              lambda pair, base, pairs, max_depth=2: True)
+    return (lambda: (apply_r(), apply_p()), lambda: (restore_r(), restore_p()))
+
+
+@mutation("目标商品与替代品各用一套标准（替代品不走共用审核）")
+def _m74():
+    orig = mbm._alt_price_check
+
+    def loose(items, converted, as_of, price_class, requested=None):
+        # 退回旧写法：只看"有没有数值接近的替代品报价"，不查冲突、不看身份
+        for e in items or []:
+            if (isinstance(e, dict) and e.get("kind") in ("price", "promo")
+                    and str(e.get("subject") or "").lower() == "alternative"
+                    and evidence._positive_number(e.get("value"))
+                    and abs(float(e["value"]) - float(converted)) / float(converted) <= 0.05):
+                return {"problem": None, "problems": [], "verified": "source",
+                        "status": "OK", "settlement_price": float(e["value"]),
+                        "assessment": {}}
+        return {"problem": "ALT_PRICE_UNVERIFIED",
+                "problems": ["ALT_PRICE_UNVERIFIED"], "verified": None,
+                "status": "NO_EVIDENCE", "settlement_price": None, "assessment": {}}
+    return _set(mbm, "_alt_price_check", loose)
+
+
+@mutation("身份歧义时仍报「同一商品价差多少」（与身份提示自相矛盾）")
+def _m75():
+    """第九轮修掉的输出矛盾：规格/地区并列时，一边说「不是同一件商品」，
+    一边说「同一商品价差 22%」。这里把粗价差警告强行加回来。"""
+    orig = evidence.check
+
+    def loud(items, *a, **kw):
+        res = orig(items, *a, **kw)
+        codes = {f["code"] for f in res["findings"]}
+        if "EV_IDENTITY_AMBIGUOUS" in codes and "EV_CONFLICT" not in codes:
+            res = dict(res)
+            res["findings"] = list(res["findings"]) + [
+                {"code": "EV_CONFLICT", "severity": "WARN",
+                 "message": "同一商品在多个来源价差超过 15%", "scope": {}}
+            ]
+        return res
+
+    return _set(evidence, "check", loud)
 
 
 def main() -> int:

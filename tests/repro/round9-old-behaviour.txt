@@ -1,0 +1,41 @@
+[P1] 只给 page_price_set=[699]，不给任何正文
+[P1] page_quote_check -> level=content problem=None
+[P1] 期望：最多 reported（取证方自述的数字列表不是独立证据）
+[P1] 整链路 -> ('SWITCH', False, ['AFFORDABLE_WITHIN_BUDGET']) alt_verified=content
+[P2] 页面正文里的数字必须有价格语义
+[P2]   正文='型号699，售价899元' 报价=699 期望不能通过 -> level=content problem=None
+[P2]   正文='型号699，售价899元' 报价=256 期望不能通过 -> level=None problem=PAGE_TEXT_NO_QUOTE
+[P2]   正文='256GB存储，售价899元' 报价=256 期望不能通过 -> level=content problem=None
+[P2]   正文='已售699件，售价899元' 报价=699 期望不能通过 -> level=content problem=None
+[P2]   正文='售价699元' 报价=699 期望通过 -> level=content problem=None
+[P2]   正文='优惠后699元' 报价=699 期望通过 -> level=content problem=None
+[P2]   三数字语义 -> content
+[P3] 规格不同：128GB 促销 899 / 256GB 标价 1099，输入 899
+[P3] 整链路 -> ('BUY', True, ['AFFORDABLE_WITHIN_BUDGET']) findings=['EV_CONFLICT', 'EV_PRICE_BASIS_DIFF']
+[P3] 期望：DEFER（规格未指定 → 歧义），旧代码用口径优先级挑了 128GB 的促销价
+[P3] 规格不同 + 用户明确要 256GB，输入 1099
+[P3] 整链路 -> ('DEFER', True, ['PRICE_UNVERIFIED']) findings=['AUD_PRICE_MISMATCH', 'EV_CONFLICT', 'EV_PRICE_BASIS_DIFF']
+[P4] 替代品：官方 899 + 官方 1299，用户填 899
+[P4] 整链路 -> ('SWITCH', False, ['AFFORDABLE_WITHIN_BUDGET']) alt_problems=[] verified=source
+[P4] 期望：DEFER（同等级同口径冲突 899/1299），旧代码先按 ±5% 过滤把 1299 排掉了
+[P5] 支持币种里加一个没有锚点的币种（模拟新增币种忘记补锚点）
+[P5] fx_rejection -> None
+[P5] fx_plausibility -> {'ok': True, 'expected': None, 'anchor_outdated': False, 'why': None}
+[P5] fx_rates -> {('VND', 'CNY'): 0.00028}
+[P5] 期望：缺锚点不能默认放行，应返回未知/不支持并被拒绝
+[P6] base 参数是否真的约束了 fx_rejection
+[P6] 无关币种对 GBP/KRW（base=CNY）-> None / {('GBP', 'KRW'): 1700.0}
+[P6] 多条相同币种对冲突：USD/CNY 7.1 与 7.9
+[P6] fx_rates -> {('USD', 'CNY'): 7.9}（静默取最后一条）
+[P6] 交叉汇率：EUR 商品 + USD/CNY + EUR/USD
+[P6] convert_amount(100 EUR -> CNY) -> None
+[P6] 反向汇率：只给 CNY/USD=0.14，商品 100 USD
+[P6] convert_amount(100 USD -> CNY) -> 714.29
+[P6] 基准币不是 CNY：base=USD，商品 700 CNY，只有 USD/CNY=7.1
+[P6] convert_amount(700 CNY -> USD) -> 98.59
+[P7] 官方报价 899 有效 + 社区报价带无效 page_price=0
+[P7] 整链路 -> ('DEFER', True, ['PRICE_UNVERIFIED']) findings=['EV_PAGE_PRICE_INVALID', 'EV_UGC_PRICE']
+[P7] 期望：BUY（低可信证据不能否决独立有效的高可信报价）
+
+============================================================
+复现结果已保存到 tests/repro/round9-old-behaviour.txt

@@ -376,6 +376,84 @@ def run_fxguard():
           and deep["plausibility"]["why"] == "FX_IMPLAUSIBLE"
           and deep["rejection"] == "FX_IMPLAUSIBLE",
           deep)
+
+    # --- F17-F18：锚点覆盖。支持列表里加了币种却没补锚点，不能默认放行。
+    saved = evidence.SUPPORTED_CURRENCIES
+    try:
+        evidence.SUPPORTED_CURRENCIES = tuple(list(saved) + ["VND"])
+        vnd = fx(0.00028, "VND", "CNY")
+        check("F17", "支持列表里没锚点的币种：无法判断合理 → 拒绝，不默认放行",
+              rej(vnd) == "FX_NO_ANCHOR"
+              and evidence.fx_rates([vnd], "CNY", FIXTURE_TODAY) == {}
+              and evidence.convert_amount(100, "VND", "CNY", [vnd], FIXTURE_TODAY) is None,
+              {"reject": rej(vnd),
+               "rates": evidence.fx_rates([vnd], "CNY", FIXTURE_TODAY)})
+    finally:
+        evidence.SUPPORTED_CURRENCIES = saved
+    check("F18", "锚点覆盖自检：当前支持币种全部有锚点",
+          evidence.fx_anchor_coverage_ok() and evidence.fx_anchor_gaps() == [],
+          evidence.fx_anchor_gaps())
+
+    # --- F19-F27：换算方向、冲突、相关性、唯一入口。
+    # 字段语义固定为：value = 1 base 值多少 quote，即 (base, quote) 的比值。
+    a, b = fx(7.1), fx(7.9)
+    table = evidence.fx_rate_table([a, b], "CNY", FIXTURE_TODAY)
+    check("F19", "同一币种对多条汇率冲突：整对丢弃，不静默取最后一条",
+          table["rates"] == {} and bool(table["conflicts"])
+          and evidence.convert_amount(100, "USD", "CNY", [a, b], FIXTURE_TODAY) is None,
+          {"rates": table["rates"], "conflicts": table["conflicts"],
+           "amount": evidence.convert_amount(100, "USD", "CNY", [a, b], FIXTURE_TODAY)})
+    fwd = fx(7.1, "USD", "CNY")
+    back_bad = fx(0.2, "CNY", "USD")
+    check("F20", "两个方向的汇率互不自洽 → 一起丢弃",
+          evidence.fx_rates([fwd, back_bad], "CNY", FIXTURE_TODAY) == {},
+          evidence.fx_rates([fwd, back_bad], "CNY", FIXTURE_TODAY))
+
+    usd = fx(7.1, "USD", "CNY")
+    eur_usd = fx(1.08, "EUR", "USD")
+    amount, info = evidence.convert_amount_detail(100, "EUR", "CNY",
+                                                  [usd, eur_usd], FIXTURE_TODAY)
+    check("F21", "交叉汇率 EUR→USD→CNY 可用，且写明推导链（正向对照）",
+          amount == 766.8 and info["cross"] and len(info["chain"]) == 2,
+          {"amount": amount, "info": info})
+    jpy_hkd = fx(0.052, "JPY", "HKD")
+    hkd_eur = fx(0.111, "HKD", "EUR")
+    eur_cny = fx(8.2, "EUR", "CNY")
+    check("F22", "跨多个中间币种的推导不参与计算（深度限制）",
+          evidence.convert_amount(100, "JPY", "CNY",
+                                  [jpy_hkd, hkd_eur, eur_cny], FIXTURE_TODAY) is None,
+          evidence.convert_amount(100, "JPY", "CNY",
+                                  [jpy_hkd, hkd_eur, eur_cny], FIXTURE_TODAY))
+    gbp_krw = fx(1700.0, "GBP", "KRW")
+    check("F23", "与基准币种连不上的汇率不进换算表",
+          evidence.fx_rates([usd, gbp_krw], "CNY", FIXTURE_TODAY) == {("USD", "CNY"): 7.1},
+          evidence.fx_rates([usd, gbp_krw], "CNY", FIXTURE_TODAY))
+    krw_cny = fx(0.0052, "KRW", "CNY")
+    check("F24", "base 参数真的参与判断：同一条汇率换个基准结论不同",
+          evidence.fx_rejection(krw_cny, "CNY", FIXTURE_TODAY) is None
+          and evidence.fx_rejection(krw_cny, "USD", FIXTURE_TODAY,
+                                    related_pairs={("USD", "CNY"): 7.1})
+          == "FX_UNRELATED_PAIR",
+          {"cny": evidence.fx_rejection(krw_cny, "CNY", FIXTURE_TODAY),
+           "usd": evidence.fx_rejection(krw_cny, "USD", FIXTURE_TODAY,
+                                        related_pairs={("USD", "CNY"): 7.1})})
+    check("F25", "基准币种不是 CNY 时照常换算（700 CNY → USD，正向对照）",
+          evidence.convert_amount(700, "CNY", "USD", [usd], FIXTURE_TODAY) == 98.59,
+          evidence.convert_amount(700, "CNY", "USD", [usd], FIXTURE_TODAY))
+    check("F26", "反向汇率：只给 CNY/USD 时 USD 商品照常换算（正向对照）",
+          evidence.convert_amount(100, "USD", "CNY",
+                                  [fx(0.14, "CNY", "USD")], FIXTURE_TODAY) == 714.29,
+          evidence.convert_amount(100, "USD", "CNY",
+                                  [fx(0.14, "CNY", "USD")], FIXTURE_TODAY))
+
+    orig_rates = evidence.fx_rates
+    try:
+        evidence.fx_rates = lambda *args, **kwargs: {}
+        check("F27", "换算只有 fx_rates 一个入口：掐掉它就算不出任何数字",
+              evidence.convert_amount(100, "USD", "CNY", [usd], FIXTURE_TODAY) is None,
+              evidence.convert_amount(100, "USD", "CNY", [usd], FIXTURE_TODAY))
+    finally:
+        evidence.fx_rates = orig_rates
     return out
 
 
@@ -462,18 +540,76 @@ def run_pageguard():
           and evidence.page_quote_check(g13)["level"] is None,
           evidence.page_quote_check(g13))
 
-    # 不贴正文时的退路：给页面价格集合，同样要能被核对
+    # P1：不贴正文时给的"页面价格集合"是取证方自己列的一串数字，
+    # 不是可复核的页面内容。它最多算自述（reported），拿不到 content——
+    # 把取证方自己提供的数字列表当成独立证据，等于让他给自己出证明。
     g14 = item(899)
-    g14["page_price_set"] = [1299.0, 1599.0]
-    check("G14", "只给页面价格集合时，集合里没有这个价照样被抓出来",
-          evidence.page_quote_check(g14)["problem"] == "PAGE_TEXT_NO_QUOTE"
-          and evidence.page_quote_check(g14)["level"] is None,
-          evidence.page_quote_check(g14))
-    g15 = item(899)
-    g15["page_price_set"] = [899.0, 1299.0]
-    check("G15", "页面价格集合里有这个价 → content 级（正向对照）",
-          evidence.page_quote_check(g15)["level"] == "content",
-          evidence.page_quote_check(g15))
+    g14["page_price_set"] = [899.0, 1299.0]
+    r14 = evidence.page_quote_check(g14)
+    check("G14", "只给 page_price_set 不给正文 → 最多 reported，拿不到 content",
+          r14["level"] == "reported" and r14["problem"] is None
+          and r14["detail"].get("price_set_only") is True
+          and r14["detail"].get("source_authenticity") == "unverified",
+          r14)
+    g14b = item(899)
+    g14b["page_price_set"] = [1299.0, 1599.0]
+    r14b = evidence.page_quote_check(g14b)
+    check("G15", "page_price_set 里没有这个价也不据此报「找不到」：它根本不参与核验",
+          r14b["level"] == "reported" and r14b["problem"] is None, r14b)
+
+    # P1 之三：说要做哈希核验就必须给哈希，且由引擎重算
+    g16 = item(899)
+    g16["page_text"] = good_text
+    g16["require_page_hash"] = True
+    r16 = evidence.page_quote_check(g16)
+    check("G16", "要求哈希核验却没提供哈希 → 不成立",
+          r16["problem"] == "PAGE_TEXT_HASH_REQUIRED" and r16["level"] is None, r16)
+    g16b = item(899)
+    g16b["page_text"] = good_text
+    g16b["page_text_sha256"] = sha(good_text)
+    r16b = evidence.page_quote_check(g16b)
+    check("G17", "正文哈希自洽 → content 级，但来源真实性仍标未验证（正向对照）",
+          r16b["level"] == "content"
+          and r16b["detail"].get("text_integrity") == "verified"
+          and r16b["detail"].get("source_authenticity") == "unverified", r16b)
+    g16c = item(899)
+    g16c["page_text_sha256"] = sha(good_text)
+    r16c = evidence.page_quote_check(g16c)
+    check("G18", "声明了哈希却没给正文 → 无从重算，不算核验过",
+          r16c["problem"] == "PAGE_TEXT_HASH_UNVERIFIABLE" and r16c["level"] is None,
+          r16c)
+
+    # --- G19-G26：页面里的数字必须有**价格语义**。
+    # 只比对数值是不够的：型号、容量、销量里的数字都是数字，但都不是价签。
+    def lookup(value, text):
+        return evidence.page_price_lookup(value, text)["status"]
+
+    check("G19", "型号里的 699 不能通过（型号不是价签）",
+          lookup(699, "产品型号 X699，支持256GB存储，当前售价899元。") == "not_a_price",
+          evidence.page_price_lookup(699, "产品型号 X699，支持256GB存储，当前售价899元。"))
+    check("G20", "容量里的 256 不能通过",
+          lookup(256, "产品型号 X699，支持256GB存储，当前售价899元。") == "not_a_price",
+          evidence.page_price_lookup(256, "产品型号 X699，支持256GB存储，当前售价899元。"))
+    check("G21", "销量里的 699 不能通过",
+          lookup(699, "已售699件，售价899元。") == "not_a_price",
+          evidence.page_price_lookup(699, "已售699件，售价899元。"))
+    check("G22", "售价 699 通过（正向对照）",
+          lookup(699, "本店售价699元，全国联保。") == "matched",
+          evidence.page_price_lookup(699, "本店售价699元，全国联保。"))
+    check("G23", "优惠后 699 通过（正向对照）",
+          lookup(699, "本店优惠后699元，全国联保。") == "matched",
+          evidence.page_price_lookup(699, "本店优惠后699元，全国联保。"))
+    three = "产品型号 X699，支持256GB存储，当前售价899元，促销后799元。"
+    check("G24", "一句里三个数字各有语义：699 不是价、899 与 799 是价",
+          lookup(699, three) == "not_a_price" and lookup(899, three) == "matched"
+          and lookup(799, three) == "matched",
+          {"699": lookup(699, three), "899": lookup(899, three), "799": lookup(799, three)})
+    check("G25", "同一数字既有价格用法又有非价格用法 → 不确定，不得强行通过",
+          lookup(899, "型号 A899 的售价为 899 元。") == "ambiguous",
+          evidence.page_price_lookup(899, "型号 A899 的售价为 899 元。"))
+    check("G26", "千分位写法 1,299 也能识别为价格（正向对照）",
+          lookup(1299, "本店现价 1,299 元，限量 3 台。") == "matched",
+          evidence.page_price_lookup(1299, "本店现价 1,299 元，限量 3 台。"))
     return out
 
 

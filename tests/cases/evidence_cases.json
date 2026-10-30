@@ -765,11 +765,11 @@
         ]
       },
       "expect": [
-        "EV_CONFLICT",
+        "EV_IDENTITY_AMBIGUOUS",
         "EV_PRICE_BASIS_DIFF"
       ],
       "expect_ok": true,
-      "why": "不同规格是两个商品，价格不同天经地义。缺的是「你要买哪个规格」，不是数据错误。"
+      "why": "不同规格是两个商品，价格不同天经地义。缺的是「你要买哪个规格」，不是数据错误。 第九轮起报 EV_IDENTITY_AMBIGUOUS，且**不许**再报 EV_CONFLICT（价差 22% 那条）——它写着「同一商品在多个来源价差」，与「这不是同一个商品」自相矛盾。价差已并入身份提示。"
     },
     {
       "id": "E31",
@@ -801,11 +801,11 @@
         ]
       },
       "expect": [
-        "EV_CONFLICT",
+        "EV_IDENTITY_AMBIGUOUS",
         "EV_PRICE_BASIS_DIFF"
       ],
       "expect_ok": true,
-      "why": "地区差价是正常的商业事实，不是数据错误。"
+      "why": "地区差价是正常的商业事实，不是数据错误。 第九轮起报 EV_IDENTITY_AMBIGUOUS，且**不许**再报 EV_CONFLICT：国行与美版不是同一件商品，谈不上「同一商品价差多少」。"
     },
     {
       "id": "E32",

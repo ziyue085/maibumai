@@ -4852,6 +4852,657 @@
       "expect_ok": true,
       "expect_alt_verified": "content",
       "expect_alt_problems": []
+    },
+    {
+      "id": "N25",
+      "name": "替代品同等级报价打架（899 / 1299）必须暂缓，不能挑一个用",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 1299,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤用，旧的坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "上代同功能够用"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "比上代贵太多"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1299",
+            "value": 1299,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-29"
+          },
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "official",
+            "url": "https://example.com/alt1",
+            "observed_at": "2026-10-29",
+            "subject": "alternative"
+          },
+          {
+            "kind": "price",
+            "claim": "1299",
+            "value": 1299,
+            "source_type": "official",
+            "url": "https://example.com/alt2",
+            "observed_at": "2026-10-29",
+            "subject": "alternative"
+          }
+        ],
+        "recheck_condition": "核对到手价后重新判断",
+        "alternative": {
+          "name": "上代",
+          "price": 899,
+          "source": "某平台 2026-10-29"
+        }
+      },
+      "why": "旧代码先按输入价 ±5% 筛选替代品证据：官方 1299 因为离 899 太远被直接排除，冲突随之消失，替换建议照出。现在替代品与目标商品共用一套审核，冲突在筛选**之前**判。",
+      "expect_verdict": "DEFER",
+      "expect_ok": true,
+      "expect_findings": [
+        "EV_CONFLICT"
+      ],
+      "expect_alt_problems": [
+        "ALT_PRICE_CONFLICT"
+      ]
+    },
+    {
+      "id": "N26",
+      "name": "低可信报价的问题不能否决独立有效的高可信报价",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 899,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-29"
+          },
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "ugc",
+            "url": "https://example.com/ugc",
+            "observed_at": "2026-10-29",
+            "page_price": 0
+          }
+        ],
+        "recheck_condition": "核对到手价后重新判断"
+      },
+      "why": "官方 899 完全成立，另一条社区报价把 page_price 填成 0。旧代码把它报成阻断，整条结论被拉成暂缓——低可信证据反而有了否决权。",
+      "expect_verdict": "BUY",
+      "expect_ok": true,
+      "expect_enforced": [
+        "AFFORDABLE_WITHIN_BUDGET"
+      ],
+      "expect_findings": [
+        "EV_UGC_PRICE"
+      ]
+    },
+    {
+      "id": "N27",
+      "name": "只有口述/社区报价时仍然不能给购买结论（P7 反向对照）",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 899,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "大概八百多",
+            "value": 899,
+            "source_type": "user_provided",
+            "observed_at": "2026-10-29"
+          }
+        ],
+        "recheck_condition": "核对到手价后重新判断"
+      },
+      "why": "低可信证据不参与正式判断，也不等于可以拿来支撑结论：一条可信报价都没有时，购买与替换建议都不成立。",
+      "expect_verdict": "DEFER",
+      "expect_ok": true,
+      "expect_enforced": [
+        "PRICE_UNVERIFIED"
+      ]
+    },
+    {
+      "id": "N28",
+      "name": "规格并列（128GB / 256GB）没说清买哪个 → 暂缓，且不默认选便宜的",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌手机",
+          "price": 899,
+          "category": "数码/手机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "official",
+            "url": "https://example.com/a",
+            "observed_at": "2026-10-29",
+            "price_basis": "promo",
+            "variant": "128GB"
+          },
+          {
+            "kind": "price",
+            "claim": "1099",
+            "value": 1099,
+            "source_type": "official",
+            "url": "https://example.com/b",
+            "observed_at": "2026-10-29",
+            "price_basis": "msrp",
+            "variant": "256GB"
+          }
+        ],
+        "recheck_condition": "核对到手价后重新判断"
+      },
+      "why": "旧代码按口径优先级挑了 128GB 的促销价 899 直接判买。规格没定就先定规格：默认买最便宜的规格不是价格判断，是替用户改需求。",
+      "expect_verdict": "DEFER",
+      "expect_ok": true,
+      "expect_enforced": [
+        "PRICE_UNVERIFIED"
+      ],
+      "expect_findings": [
+        "EV_IDENTITY_AMBIGUOUS"
+      ]
+    },
+    {
+      "id": "N29",
+      "name": "用户指定 256GB 时只拿 256GB 的价比（正向对照）",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌手机",
+          "price": 1099,
+          "category": "数码/手机",
+          "variant": "256GB"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "official",
+            "url": "https://example.com/a",
+            "observed_at": "2026-10-29",
+            "price_basis": "promo",
+            "variant": "128GB"
+          },
+          {
+            "kind": "price",
+            "claim": "1099",
+            "value": 1099,
+            "source_type": "official",
+            "url": "https://example.com/b",
+            "observed_at": "2026-10-29",
+            "price_basis": "msrp",
+            "variant": "256GB"
+          }
+        ],
+        "recheck_condition": "核对到手价后重新判断"
+      },
+      "why": "身份匹配之后才谈口径。指定了 256GB，128GB 的促销价再便宜也不参与比较。",
+      "expect_verdict": "BUY",
+      "expect_ok": true,
+      "expect_enforced": [
+        "AFFORDABLE_WITHIN_BUDGET"
+      ]
+    },
+    {
+      "id": "N30",
+      "name": "地区并列（国行 / 美版）没说清 → 暂缓",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌手机",
+          "price": 899,
+          "category": "数码/手机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "official",
+            "url": "https://example.com/cn",
+            "observed_at": "2026-10-29",
+            "region": "CN"
+          },
+          {
+            "kind": "price",
+            "claim": "1099",
+            "value": 1099,
+            "source_type": "official",
+            "url": "https://example.com/us",
+            "observed_at": "2026-10-29",
+            "region": "US"
+          }
+        ],
+        "recheck_condition": "核对到手价后重新判断"
+      },
+      "why": "国行与美版是不同商品：保修、频段、税费都不同，不能放在一起比价。",
+      "expect_verdict": "DEFER",
+      "expect_ok": true,
+      "expect_enforced": [
+        "PRICE_UNVERIFIED"
+      ],
+      "expect_findings": [
+        "EV_IDENTITY_AMBIGUOUS"
+      ]
+    },
+    {
+      "id": "N31",
+      "name": "含税 1099 与不含税 899 并存时，到手价是 1099",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 899,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1099",
+            "value": 1099,
+            "source_type": "official",
+            "url": "https://example.com/tax",
+            "observed_at": "2026-10-29",
+            "price_basis": "tax_inclusive"
+          },
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "official",
+            "url": "https://example.com/net",
+            "observed_at": "2026-10-29",
+            "price_basis": "tax_exclusive"
+          }
+        ],
+        "recheck_condition": "核对到手价后重新判断"
+      },
+      "why": "不含税 899 与用户填的 899 数字对得上，但那不是到手价。按到手价口径取含税那一条，输入价 899 就成了真的对不上。",
+      "expect_verdict": "DEFER",
+      "expect_ok": true,
+      "expect_enforced": [
+        "PRICE_UNVERIFIED"
+      ],
+      "expect_findings": [
+        "EV_PRICE_BASIS_DIFF"
+      ]
+    },
+    {
+      "id": "N32",
+      "name": "身份一致下标价 1099 与促销 899 可以同时为真（正向对照）",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌手机",
+          "price": 899,
+          "category": "数码/手机",
+          "variant": "128GB"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "每天通勤两小时，旧耳机降噪坏了"
+          },
+          {
+            "code": "PRICE_FAIR",
+            "note": "官方与自营同价"
+          },
+          {
+            "code": "LOW_REGRET_RISK",
+            "note": "支持七天无理由退货"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "899",
+            "value": 899,
+            "source_type": "official",
+            "url": "https://example.com/a",
+            "observed_at": "2026-10-29",
+            "price_basis": "promo",
+            "variant": "128GB"
+          },
+          {
+            "kind": "price",
+            "claim": "1099",
+            "value": 1099,
+            "source_type": "official",
+            "url": "https://example.com/b",
+            "observed_at": "2026-10-29",
+            "price_basis": "msrp",
+            "variant": "128GB"
+          }
+        ],
+        "recheck_condition": "核对到手价后重新判断"
+      },
+      "why": "同一件 128GB、官方标价 1099、促销 899：这是正常促销，不是数据打架。身份匹配后口径优先级才生效，到手价取促销 899。",
+      "expect_verdict": "BUY",
+      "expect_ok": true,
+      "expect_enforced": [
+        "AFFORDABLE_WITHIN_BUDGET"
+      ],
+      "expect_findings": [
+        "EV_PRICE_BASIS_DIFF"
+      ]
+    },
+    {
+      "id": "N33",
+      "name": "替代品只给页面价格集合 → 只到 reported，换不到 content（P1）",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 1299,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤用，旧的坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "上代同功能够用"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "比上代贵太多"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1299",
+            "value": 1299,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-29"
+          },
+          {
+            "kind": "price",
+            "claim": "600",
+            "value": 600,
+            "source_type": "official",
+            "url": "https://example.com/alt",
+            "observed_at": "2026-10-29",
+            "subject": "alternative",
+            "page_price": 600,
+            "page_price_set": [
+              600,
+              900
+            ]
+          }
+        ],
+        "recheck_condition": "核对到手价后重新判断",
+        "alternative": {
+          "name": "上代",
+          "price": 600,
+          "source": "某平台 2026-10-29"
+        }
+      },
+      "why": "page_price_set 是取证方自己列的一串数字，不是可复核的页面正文。它能证明的只是\"取证方说他看到了\"，引擎无从复核。",
+      "expect_verdict": "SWITCH",
+      "expect_ok": true,
+      "expect_alt_problems": [],
+      "expect_alt_verified": "reported"
+    },
+    {
+      "id": "N34",
+      "name": "替代品正文里这个数只是型号，不是价格 → 不给替换建议（P2）",
+      "profile": {
+        "facts": {
+          "finance.monthly_income": 2600,
+          "finance.monthly_fixed_expense": 1100,
+          "finance.savings_target_monthly": 0,
+          "invest.monthly_contribution": 0,
+          "finance.discretionary_override": 5000
+        }
+      },
+      "draft": {
+        "product": {
+          "name": "某品牌耳机",
+          "price": 1299,
+          "category": "数码/耳机"
+        },
+        "reasons": [
+          {
+            "code": "NEED_REAL",
+            "note": "通勤用，旧的坏了"
+          },
+          {
+            "code": "SUBSTITUTE_ADEQUATE",
+            "note": "上代同功能够用"
+          },
+          {
+            "code": "PRICE_ABOVE_FAIR",
+            "note": "比上代贵太多"
+          }
+        ],
+        "evidence": [
+          {
+            "kind": "price",
+            "claim": "1299",
+            "value": 1299,
+            "source_type": "official",
+            "url": "https://example.com/p",
+            "observed_at": "2026-10-29"
+          },
+          {
+            "kind": "price",
+            "claim": "600",
+            "value": 600,
+            "source_type": "official",
+            "url": "https://example.com/alt",
+            "observed_at": "2026-10-29",
+            "subject": "alternative",
+            "page_price": 600,
+            "page_text": "产品型号 X600，支持256GB存储，当前售价900元。"
+          }
+        ],
+        "recheck_condition": "核对到手价后重新判断",
+        "alternative": {
+          "name": "上代",
+          "price": 600,
+          "source": "某平台 2026-10-29"
+        }
+      },
+      "why": "正文写的是『型号 X600，售价 900 元』，600 出现在型号里。只比对数值会让型号充当价签，必须拦下。",
+      "expect_verdict": "DEFER",
+      "expect_ok": true,
+      "expect_alt_problems": [
+        "ALT_PAGE_TEXT_NOT_A_PRICE"
+      ]
     }
   ]
 }

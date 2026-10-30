@@ -73,6 +73,18 @@
         },
         "note": {
           "type": "string"
+        },
+        "model": {
+          "type": "string",
+          "description": "商品型号。报价证据可用 model 标明指的是哪一件商品；并列多个型号且未指定要买哪个时，只能暂缓"
+        },
+        "variant": {
+          "type": "string",
+          "description": "规格/SKU（如 256GB、Pro 版）。**规格不同就是不同的商品**：不同规格的价格不得直接比较，也不得默认按最便宜的规格下结论。用户明确指定规格时，只拿规格吻合的报价去比"
+        },
+        "region": {
+          "type": "string",
+          "description": "地区/版本（如 CN、US、港版）。不同地区/版本的价格不得混用"
         }
       },
       "required": [
@@ -146,6 +158,18 @@
         "price_note": {
           "type": "string",
           "description": "仅作补充说明，不能替代 price"
+        },
+        "model": {
+          "type": "string",
+          "description": "替代品型号，用于与目标商品身份对齐"
+        },
+        "variant": {
+          "type": "string",
+          "description": "替代品规格/SKU；与目标商品用同一套身份匹配规则"
+        },
+        "region": {
+          "type": "string",
+          "description": "替代品地区/版本"
         }
       }
     },
@@ -246,22 +270,22 @@
               "null"
             ],
             "exclusiveMinimum": 0,
-            "description": "取证方读完页面后**原样**记下的价格，必须是正的有限数。填了且与 value 一致（±2%）才算「取证方自述读过页面」（price_verified=reported）；差超过 2% 判 EV_QUOTE_CONTENT_MISMATCH；填 0、负数、布尔、NaN、Infinity 判 EV_PAGE_PRICE_INVALID——**等于没填，且换不来任何核验等级**。⚠️ 只有 page_price 时引擎无法复核，不给 content 级。"
+            "description": "取证方读完页面后原样记下的价格，必须是正的有限数。填了且与 value 一致（±2%）只算 reported（取证方自述）；要拿 content 级必须另外给 page_text，且正文里这个数确实以**价格**身份出现（型号/容量/销量里的数字不算）。填 0、负数、布尔、NaN、Infinity 判 EV_PAGE_PRICE_INVALID；不填或填 null 只到 source 级。⚠️ 单独给 page_price_set 不算页面内容：那是取证方列的数字，最多 reported。"
           },
           "page_text": {
             "type": "string",
-            "description": "页面上包含该价格的一段正文（或全文）。给了它，引擎才**有可能**复核：重算 page_text_sha256 并在正文里找这个价，两者都过才给 price_verified=content。找不到判 EV_PAGE_TEXT_NO_QUOTE。"
+            "description": "页面上包含该价格的一段正文（或全文）。只有给了它、且引擎在正文里以价格语境找到这个数，才配叫 content 级「页面核对过」。"
           },
           "page_text_sha256": {
             "type": "string",
-            "description": "page_text 的 sha256（小写十六进制 64 位）。引擎会重算比对；不符判 EV_PAGE_TEXT_HASH_MISMATCH。⚠️ 它只证明「这段正文与声明的哈希一致、中途没被改」，**不**证明正文来自那个 URL，也不证明域名权威。"
+            "description": "page_text 的 sha256，由引擎重算比对。它只能证明**这段正文没被改过**，不能证明正文来自那个 URL，也不能证明域名是官方渠道。"
           },
           "page_price_set": {
             "type": "array",
             "items": {
               "type": "number"
             },
-            "description": "不方便贴正文时的退路：页面上出现过的价格集合。引擎同样会在集合里找报价，找不到判 EV_PAGE_TEXT_NO_QUOTE。"
+            "description": "页面上出现过的价格集合。**仅此一项不能获得 content 级**——它是取证方自己列的一串数字，不是可复核的页面正文；引擎不接受它作为独立证据。"
           },
           "price_basis": {
             "type": "string",
@@ -281,6 +305,14 @@
           "region": {
             "type": "string",
             "description": "销售地区（如 CN、US）。地区差价是正常商业事实，不是数据错误；未标明要买哪个版本时暂缓。"
+          },
+          "model": {
+            "type": "string",
+            "description": "这条报价说的是哪个型号；与 variant/region 一起构成商品身份"
+          },
+          "require_page_hash": {
+            "type": "boolean",
+            "description": "置 true 表示要求哈希核验：此时必须提供 page_text_sha256，否则拿不到 content 级"
           }
         },
         "required": [

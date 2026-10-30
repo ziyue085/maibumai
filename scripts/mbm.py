@@ -81,71 +81,82 @@ def _append_findings(result: dict, findings) -> None:
     result["ok"] = result["blocking"] == 0
 
 
-def _alt_price_check(items, converted, as_of, price_class) -> dict:
+#: 报价审核终态 → 替代品该报的问题码。**目标商品和替代品共用** ev.assess_quotations，
+#: 只有"出了该怎么说"这一层不同，不允许两边各写一套判断标准。
+ALT_STATUS_PROBLEM = {
+    "NO_EVIDENCE": "ALT_PRICE_UNVERIFIED",
+    "NO_CREDIBLE": "ALT_PRICE_WEAK_SOURCE",
+    "NO_LINK": "ALT_PRICE_UNVERIFIED",
+    "STALE": "ALT_PRICE_STALE",
+    "IDENTITY_AMBIGUOUS": "ALT_IDENTITY_AMBIGUOUS",
+    "CONFLICT": "ALT_PRICE_CONFLICT",
+    "BASIS_AMBIGUOUS": "ALT_PRICE_BASIS_AMBIGUOUS",
+    "NO_VALUE": "ALT_PRICE_UNVERIFIED",
+    "MISMATCH": "ALT_PRICE_MISMATCH",
+}
+
+ALT_PAGE_PROBLEM = {
+    "PAGE_PRICE_INVALID": "ALT_PAGE_PRICE_INVALID",
+    "QUOTE_CONTENT_MISMATCH": "ALT_PRICE_CONTENT_MISMATCH",
+    "PAGE_TEXT_HASH_MISMATCH": "ALT_PAGE_TEXT_HASH_MISMATCH",
+    "PAGE_TEXT_HASH_UNVERIFIABLE": "ALT_PAGE_TEXT_HASH_UNVERIFIABLE",
+    "PAGE_TEXT_HASH_REQUIRED": "ALT_PAGE_TEXT_HASH_REQUIRED",
+    "PAGE_TEXT_NO_QUOTE": "ALT_PAGE_TEXT_NO_QUOTE",
+    "PAGE_TEXT_NOT_A_PRICE": "ALT_PAGE_TEXT_NOT_A_PRICE",
+    "PAGE_TEXT_PRICE_AMBIGUOUS": "ALT_PAGE_TEXT_PRICE_AMBIGUOUS",
+}
+
+
+def _quotation_problems(assessment: dict, prefix: str) -> list:
+    """把共用审核结果翻成"这一侧"的问题码。目标侧用 ``from``，替代侧用 ALT_*。"""
+    status = assessment["status"]
+    if status == "OK":
+        return []
+    if status == "PAGE_PROBLEM":
+        codes = [ALT_PAGE_PROBLEM.get(p["problem"], "ALT_PRICE_UNVERIFIED")
+                 for p in assessment["page_problems"]]
+        return [c if c.startswith("ALT_") else prefix + c for c in codes]
+    mapped = ALT_STATUS_PROBLEM.get(status)
+    if not mapped:
+        return [prefix + status]
+    return [mapped if mapped.startswith("ALT_") else prefix + mapped]
+
+
+def _alt_price_check(items, converted, as_of, price_class, requested=None) -> dict:
     """替代品报价的出处是否站得住，以及**核实到哪一层**。
 
-    四层，逐层加严，不要混为一谈：
+    ⚠️ 这条路径**不再先按输入价 ±5% 筛选证据**。以前那样做会把真正冲突的
+    官方报价直接筛掉：官方 899 与官方 1299 并存、用户填 899 时，
+    1299 因为"离输入价太远"被排除，冲突就消失了，替代品于是"没问题"。
+    现在和目标商品共用 :func:`evidence.assess_quotations`，顺序一致：
+
+    身份 → 来源 → 时效 → 价格语义 → 规格/地区 → 口径分组 → 同级冲突 →
+    到手价 → **最后**才与用户填的价比对。
+
+    核验等级（逐层加严，不许混为一谈）：
 
     | 等级 | 含义 | 谁做的 | 引擎能复核吗 |
     |---|---|---|---|
-    | `structural` | 有链接，格式像 URL | 本函数（解析） | 能，但只到格式 |
-    | `source` | 来源等级 ≤ 3，且在保鲜期内 | 本函数（查字段） | 能 |
-    | `reported` | 另外填了 `page_price`，与引用价一致 | 取证方自述 | **不能** |
-    | `content` | 另外给了页面正文/价格集合，哈希自洽且正文里有这个价 | 本函数（重算 + 查找） | 能 |
+    | `source` | 来源等级 ≤ 3、有链接、在保鲜期内 | 本函数（查字段） | 能 |
+    | `reported` | 只填了 `page_price` 或 `page_price_set`，没有正文 | 取证方自述 | **不能** |
+    | `content` | 给了页面正文，正文里这个数确实以**价格**身份出现 | 本函数（重算 + 语义） | 能 |
 
-    关键区别：``page_text`` / ``page_text_sha256`` / ``page_price_set`` 里只要给了
-    可对照的页面内容，引擎就能自己复核（``content`` 级）；只填 ``page_price``
-    时，那只是取证方说"我看到这个价"（``reported`` 级）。
-
-    `structural` 与 `source` 只能证明"这个价有个看得过去的出处"，
+    `source` 只能证明"这个价有个看得过去的出处"，
     **不能**证明链接打得开、域名是官方、页面写着这个数。
     """
-    candidates = [
-        e for e in items or []
-        if isinstance(e, dict)
-        and e.get("kind") in ("price", "promo")
-        and str(e.get("subject") or "target").strip().lower() == "alternative"
-        and isinstance(e.get("value"), (int, float))
-        and abs(e["value"] - converted) / converted <= 0.05
-    ]
-    if not candidates:
-        return {"problem": "ALT_PRICE_UNVERIFIED", "verified": None}
-
-    # 用户口述 / 内容社区：可以作线索，不能作依据
-    best_tier = min(ev.SOURCE_TIERS.get(str(e.get("source_type") or ""), 5) for e in candidates)
-    if best_tier > 3:
-        return {"problem": "ALT_PRICE_WEAK_SOURCE", "verified": None}
-
-    linked = [e for e in candidates if ev.url_syntax_ok(e.get("url"))]
-    if not linked:
-        return {"problem": "ALT_PRICE_UNVERIFIED", "verified": None}
-
-    fresh = [
-        e for e in linked
-        if ev.item_freshness(e.get("kind"), e.get("observed_at"), as_of, price_class)[0]
-    ]
-    if not fresh:
-        return {"problem": "ALT_PRICE_STALE", "verified": None}
-
-    # 填了 page_price 但不成立（0 / 负数 / 布尔 / nan）同样是"没核对过"：
-    # 以前只判"与引用价是否一致"，假页面价反而能换来 page 级标记
-    levels = []
-    for e in fresh:
-        chk = ev.page_quote_check(e)
-        if chk["problem"] == "PAGE_PRICE_INVALID":
-            return {"problem": "ALT_PAGE_PRICE_INVALID", "verified": None}
-        if chk["problem"] == "QUOTE_CONTENT_MISMATCH":
-            return {"problem": "ALT_PRICE_CONTENT_MISMATCH", "verified": None}
-        if chk["problem"] == "PAGE_TEXT_HASH_MISMATCH":
-            return {"problem": "ALT_PAGE_TEXT_HASH_MISMATCH", "verified": None}
-        if chk["problem"] == "PAGE_TEXT_NO_QUOTE":
-            return {"problem": "ALT_PAGE_TEXT_NO_QUOTE", "verified": None}
-        if chk["level"]:
-            levels.append(chk["level"])
-    if not levels:
-        return {"problem": None, "verified": "source"}
-    return {"problem": None,
-            "verified": "content" if "content" in levels else "reported"}
+    assessment = ev.assess_quotations(
+        items, "alternative", as_of=as_of, price_class=price_class,
+        requested=requested, stated_price=converted,
+        mismatch_tolerance=PRICE_MISMATCH_TOLERANCE,
+    )
+    problems = _quotation_problems(assessment, "ALT_")
+    if assessment["status"] == "OK" and not assessment["page_level"]:
+        problems.append("ALT_PRICE_UNVERIFIED")
+    return {"problem": None, "problems": problems,
+            "verified": ev.page_level_for(assessment),
+            "status": assessment["status"],
+            "settlement_price": assessment["settlement_price"],
+            "assessment": assessment}
 
 
 def _assess_alternative(alt_raw, product, profile, items, base, as_of) -> dict:
@@ -203,9 +214,9 @@ def _assess_alternative(alt_raw, product, profile, items, base, as_of) -> dict:
                 problems.append("ALT_BUDGET_UNKNOWN")
 
         price_check = _alt_price_check(items, converted, as_of,
-                                       calc.price_class(product.get("category")))
-        if price_check["problem"]:
-            problems.append(price_check["problem"])
+                                       calc.price_class(product.get("category")),
+                                       requested=ev.requested_identity(alt))
+        problems.extend(price_check.get("problems") or [])
         verified_level = price_check["verified"]
 
     return {
@@ -251,24 +262,30 @@ PRICE_DEFECT_CODES = {
 
 
 def _target_price_defect(ev_result, items, price, target_prices, as_of=None,
-                         price_class="durable") -> dict | None:
+                         price_class="durable", product=None) -> dict | None:
     """目标商品的价格证据有没有硬伤。有就返回该用的理由码。
 
     只看 ``subject=target`` 的价格类证据：替代品的证据缺陷由替代品自己承担，
     不能拿它去否决目标商品的结论。
 
-    六类硬伤，任何一类都让"买这个/换成这个"失去前提：
+    与替代品**共用** :func:`evidence.assess_quotations`，顺序固定为
+    「身份 → 来源 → 时效 → 价格语义 → 规格/地区 → 口径分组 → 同级冲突 →
+    到手价 → 输入价比对」；两边只差"出问题了该怎么说"。
+
+    七类硬伤，任何一类都让"买这个/换成这个"失去前提：
 
     1. **根本没有报价**——`EV_MISSING_KIND` 不带证据索引，不能靠遍历 findings 发现；
-    2. 报价自身不成立（过期、无日期、未来日期、无链接、数值非法、页面价自相矛盾）；
+    2. 报价自身不成立（过期、无日期、未来日期、无链接、数值非法）；
     3. 来源只有口述或社区（等级 > 3）；
-    4. **同一口径**的报价互相打架——谁都不能被采信；
-    5. 口径没标、或并列存在多个规格/地区，分不出哪一个才是你要买的那个；
-    6. 输入价与**到手价口径**的报价相差超过 5%——两个数字里必有一个是错的。
+    4. **规格/地区/型号没说清**，分不出该拿哪个价去比；
+    5. **同一身份、同一口径**的报价互相打架——谁都不能被采信；
+    6. 页面证据自相矛盾（页面价与引用价不符、正文哈希对不上、
+       正文里这个数不是价格）——**只看可信来源的**，低可信证据不参与否决；
+    7. 输入价与**到手价口径**的报价相差超过 5%——两个数字里必有一个是错的。
 
-    关于第 4 条与第 6 条：官方标价 1099 与授权商城促销 899 可以同时为真，
-    那不是"数据打架"，是口径不同。只有（口径、规格、地区）三者都对得上的报价，
-    差 5% 以上才算真冲突；比输入价时也只比**到手价口径**的那一个
+    关于第 5 条与第 7 条：官方标价 1099 与授权商城促销 899 可以同时为真，
+    那不是"数据打架"，是口径不同；只有身份与口径都对得上的报价，
+    差 5% 以上才算真冲突。比输入价时也只比**到手价口径**的那一个
     （含税到手 > 实际成交 > 促销 > 官方标价 > 不含税）。
     """
     if not target_prices:
@@ -289,87 +306,76 @@ def _target_price_defect(ev_result, items, price, target_prices, as_of=None,
             continue
         if item.get("kind") not in ("price", "promo"):
             continue
+        # 低可信来源的问题在 check() 里已降为提示，走不到这里；
+        # 这里的阻断全部来自可信来源，属于"高可信证据自身有问题"，正常阻断。
         code = PRICE_DEFECT_CODES.get(f.get("code"))
         if code:
             return {"code": code, "why": f["message"], "from": f["code"]}
 
-    best_tier = min(
-        (ev.SOURCE_TIERS.get(str(e.get("source_type") or ""), 5) for e in target_prices),
-        default=5,
+    assessment = ev.assess_quotations(
+        items, "target", as_of=as_of, price_class=price_class,
+        requested=ev.requested_identity(product),
+        stated_price=price, mismatch_tolerance=PRICE_MISMATCH_TOLERANCE,
     )
-    if best_tier > 3:
+    status = assessment["status"]
+
+    if status == "NO_CREDIBLE":
         return {"code": "PRICE_UNVERIFIED",
                 "why": "价格只有用户口述或社区来源，不能据此断言价格合理",
                 "from": "SOURCE_TIER"}
-
-    # 时效：过期的报价不能用来判断"现值"。缺日期、日期在未来同样算过期——
-    # 下面这一步必须显式做，不能指望"反正 check() 也会报"：两处口径要一致。
-    fresh = [
-        e for e in target_prices
-        if ev.item_freshness(e.get("kind"), e.get("observed_at"), as_of, price_class)[0]
-    ]
-    if not fresh:
+    if status == "STALE":
         return {"code": "PRICE_STALE",
                 "why": "目标商品没有一条在保鲜期内的报价：旧价不能当现价用",
                 "from": "NO_FRESH_QUOTE"}
-
-    for e in fresh:
-        chk = ev.page_quote_check(e)
-        if chk["problem"] == "PAGE_PRICE_INVALID":
-            return {"code": "PRICE_UNVERIFIED",
-                    "why": (f"页面价填的是 {e.get('page_price')!r}，这不是一个价格："
-                            "这一格要么别填，要么填页面上真实出现的价格"),
-                    "from": "PAGE_PRICE_INVALID"}
-        if chk["problem"] == "QUOTE_CONTENT_MISMATCH":
-            return {"code": "PRICE_UNVERIFIED",
-                    "why": (f"证据里的价格 {e.get('value')} 与页面上看到的 "
-                            f"{e.get('page_price')} 对不上"),
-                    "from": "QUOTE_CONTENT"}
-        if chk["problem"] == "PAGE_TEXT_HASH_MISMATCH":
-            return {"code": "PRICE_UNVERIFIED",
-                    "why": "提供的页面正文与 page_text_sha256 对不上，这一条不能当页面证据",
-                    "from": "PAGE_TEXT_HASH"}
-        if chk["problem"] == "PAGE_TEXT_NO_QUOTE":
-            return {"code": "PRICE_UNVERIFIED",
-                    "why": (f"页面价 {e.get('page_price')} 在提供的页面内容里找不到："
-                            "要么抄错了，要么这段正文不是这个报价所在的页面"),
-                    "from": "PAGE_TEXT_NO_QUOTE"}
-
-    # 先按（口径/规格/地区）分组，组内再取最高等级那一档。两件事分开：
-    # 低可信报价不能用来凑近输入价（官方 899 + 社区 599 时，用户说 600 不算
-    # "对得上"）；同一口径的报价差 5% 以上才算真冲突。
-    # ⚠️ 分组范围是**所有可信来源**（≤3 级）而不是最高等级那一档：
-    # 官网标价（official）与授权商城促销（authorized_retail）本来就是不同等级，
-    # 只取最高等级会把合法的促销价排除掉。
-    groups = ev.price_basis_groups(fresh, "target")
-    conflicts = ev.basis_conflicts(groups)
-    if conflicts:
-        conflict_values = sorted({v for vals in conflicts.values() for v in vals})
+    if status == "IDENTITY_AMBIGUOUS":
+        opts = assessment["identity"]
         return {"code": "PRICE_UNVERIFIED",
-                "why": (f"同一等级、同一口径的来源给出的价 {conflict_values} 相差超过 5%："
-                        "至少有一个是错的，不能取平均、取最新或取便宜的那个，"
-                        "回到来源核对到手价"),
+                "why": ("报价里并列存在多个规格/地区/型号（"
+                        + "、".join(opts["variants"] + opts["regions"] + opts["models"])
+                        + "），又没说清你要买的是哪一个：不同规格不能放在一起比价，"
+                          "也不能默认按最便宜的那个算，先确认身份再判断"),
+                "from": "IDENTITY_AMBIGUOUS"}
+    if status == "CONFLICT":
+        conflict_values = sorted({v for vals in assessment["conflicts"].values()
+                                  for v in vals})
+        return {"code": "PRICE_UNVERIFIED",
+                "why": (f"同一等级、同一口径的来源给出的价 {conflict_values} 相差超过 "
+                        f"{int(ev.SAME_TIER_CONFLICT_TOLERANCE * 100)}%：至少有一个是错的，"
+                        "不能取平均、取最新或取便宜的那个，回到来源核对到手价"),
                 "from": "SOURCE_CONFLICT"}
-
-    values, ambiguity = ev.settlement_basis_values(fresh, "target")
-    if ambiguity == "AMBIGUOUS":
+    if status == "BASIS_AMBIGUOUS":
         return {"code": "PRICE_UNVERIFIED",
-                "why": ("报价里并列存在多个规格或地区，又没标你要买的是哪一个："
-                        "分不出该拿哪个价去比，先确认规格/地区再判断"),
+                "why": "同一商品并列存在多个到手价口径，分不出该用哪一个去比",
                 "from": "PRICE_BASIS_AMBIGUOUS"}
-    if not values:
+    if status == "PAGE_PROBLEM":
+        problem = assessment["page_problems"][0]["problem"]
+        why = {
+            "PAGE_PRICE_INVALID": "页面价填的不是正数，等于没核对过",
+            "QUOTE_CONTENT_MISMATCH": "证据里的价格与页面上看到的对不上",
+            "PAGE_TEXT_HASH_MISMATCH": "提供的页面正文与 page_text_sha256 对不上，"
+                                       "这一条不能当页面证据",
+            "PAGE_TEXT_HASH_UNVERIFIABLE": "声明了正文哈希却没给正文，无从重算",
+            "PAGE_TEXT_HASH_REQUIRED": "要求哈希核验但没有提供哈希",
+            "PAGE_TEXT_NO_QUOTE": "页面价在提供的页面内容里找不到",
+            "PAGE_TEXT_NOT_A_PRICE": "这个数字在正文里只出现在型号/容量/销量这类位置，"
+                                     "不是价格",
+            "PAGE_TEXT_PRICE_AMBIGUOUS": "正文里这个数字既有价格用法也有非价格用法，"
+                                         "分不出哪个才是商品价格",
+        }.get(problem, "页面证据不成立")
+        return {"code": "PRICE_UNVERIFIED", "why": why, "from": problem}
+    if status == "NO_VALUE":
         return {"code": "PRICE_UNVERIFIED",
                 "why": "最可信那一档来源里没有可用的报价",
                 "from": "NO_CREDIBLE_QUOTE"}
-
-    if isinstance(price, (int, float)) and not isinstance(price, bool) and price > 0 and values:
-        if not any(abs(v - price) / price <= PRICE_MISMATCH_TOLERANCE for v in values):
-            return {
-                "code": "PRICE_UNVERIFIED",
-                "why": f"你给的 {price} 元与最可信来源的报价 {sorted(set(values))} 相差超过 5%，"
-                       "两个数里必有一个不对，先确认哪个是到手价",
-                "from": "PRICE_MISMATCH",
-            }
+    if status == "MISMATCH":
+        return {
+            "code": "PRICE_UNVERIFIED",
+            "why": (f"你给的 {price} 元与最可信来源的到手价报价 "
+                    f"{sorted(set(assessment['settlement']))} 相差超过 "
+                    f"{int(PRICE_MISMATCH_TOLERANCE * 100)}%，两个数里必有一个不对，"
+                    "先确认哪个是到手价"),
+            "from": "PRICE_MISMATCH",
+        }
     return None
 
 
@@ -537,7 +543,7 @@ def _evaluate(draft: dict, profile: dict, owned=None) -> dict:
             and isinstance(e.get("value"), (int, float))
         ]
         price_defect = _target_price_defect(ev_result, items, price, target_prices,
-                                            as_of, price_class)
+                                            as_of, price_class, product=product)
         if price_defect:
             reasons = [r for r in reasons if r["code"] != "AFFORDABLE_WITHIN_BUDGET"]
             enforced_codes = [c for c in enforced_codes if c != "AFFORDABLE_WITHIN_BUDGET"]

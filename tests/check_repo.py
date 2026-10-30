@@ -102,6 +102,26 @@ def check_privacy_signatures(files) -> list:
     return hits
 
 
+def check_fx_anchor_coverage() -> list:
+    """支持币种必须都有汇率锚点。
+
+    币种进了 ``SUPPORTED_CURRENCIES`` 却没进 ``FX_ANCHORS``，合理性检查就失去
+    参照——第九轮之前这种情况下会**默认放行**，等于闸门被拆了。新增币种时
+    忘了补锚点，必须在这里被拦住，而不是等到算出离谱的数字才发现。
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import evidence
+    except Exception as exc:  # noqa: BLE001
+        return [f"无法导入 evidence 做锚点覆盖检查：{exc!r}"]
+    gaps = evidence.fx_anchor_gaps()
+    if gaps:
+        return [f"这些支持币种没有汇率锚点（新增币种请同步补 FX_ANCHORS）：{gaps}"]
+    if not evidence.fx_anchor_coverage_ok():
+        return ["fx_anchor_coverage_ok() 返回 False，但 fx_anchor_gaps() 为空：两者不一致"]
+    return []
+
+
 def check_version() -> list:
     problems = []
     skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
@@ -136,6 +156,7 @@ def main() -> int:
         problems.append("Python 编译失败：" + "；".join(bad_py))
 
     problems += check_version()
+    problems += check_fx_anchor_coverage()
 
     if problems:
         for line in problems:
